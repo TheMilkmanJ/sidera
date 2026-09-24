@@ -12,8 +12,10 @@ const require = createRequire(process.env.PUPPETEER_REQUIRE || import.meta.url);
 const puppeteer = require("puppeteer-core");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const flowRoot = `/tmp/sidera-flow-${Date.now()}`;
-const PROMPT = "Reply with only this sentence: The copy loop works.";
-const TOKEN = "the copy loop works";
+const PROMPT = process.env.SIDERA_PROMPT || "Reply with only this sentence: The copy loop works.";
+const TOKEN = (process.env.SIDERA_TOKEN || "the copy loop works").toLowerCase();
+const TURN_GOAL = Number(process.env.SIDERA_MAX_TURNS || 2);
+const DEADLINE_MS = Number(process.env.SIDERA_DEADLINE_MS || 180000);
 
 function frame(message) {
   const body = Buffer.from(JSON.stringify(message));
@@ -123,7 +125,7 @@ async function sendChatGPT(page) {
 
 const host = spawn("python3", ["-u", path.join(root, "scripts/e2e_host.py")], {
   cwd: root,
-  env: { ...process.env, SIDERA_FLOW_ROOT: flowRoot, PYTHONPATH: root },
+  env: { ...process.env, SIDERA_FLOW_ROOT: flowRoot, SIDERA_MAX_TURNS: String(TURN_GOAL), PYTHONPATH: root },
   stdio: ["pipe", "pipe", "inherit"],
 });
 const incoming = [];
@@ -164,10 +166,10 @@ async function rebind(which, page, baseline = true) {
   });
 }
 
-const deadline = Date.now() + 180000;
+const deadline = Date.now() + DEADLINE_MS;
 const submits = [];
 let error = null;
-while (Date.now() < deadline && submits.length < 2) {
+while (Date.now() < deadline && submits.length < TURN_GOAL) {
   if (chatgpt.url() !== urls.LEFT) {
     await rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT"));
   }
@@ -236,6 +238,8 @@ const report = {
   error,
 };
 console.log(JSON.stringify(report, null, 2));
-if (error || submits.length < 2 || !report.chatgptHasToken || !report.grokHasToken || !report.grokReplyIsFinished) {
+const interim = /^(worked for|working|thinking|ran \d+ searches|opened page)/i;
+const unfinished = submits.some((message) => interim.test(message.text.trim()));
+if (error || submits.length < TURN_GOAL || unfinished || !report.chatgptHasToken || !report.grokHasToken || !report.grokReplyIsFinished) {
   process.exit(1);
 }
