@@ -21,12 +21,16 @@
     return lines.length === 0 || lines.every((line) => STATUS_LINE.test(line));
   }
 
+  const SUGGESTION_LINE = /^(?:analyze|explore|discuss|investigate|compare|show me|learn about|check)\b/i;
+
   function finishedAnswer(text) {
     const lines = String(text || "").split(/\n/);
-    while (lines.length && (lines[0].trim() === "" || STATUS_LINE.test(lines[0].trim()))) lines.shift();
-    while (lines.length && (lines[lines.length - 1].trim() === "" || STATUS_LINE.test(lines[lines.length - 1].trim()))) {
-      lines.pop();
-    }
+    const drop = (line) => {
+      const trimmed = line.trim();
+      return trimmed === "" || STATUS_LINE.test(trimmed) || SUGGESTION_LINE.test(trimmed);
+    };
+    while (lines.length && drop(lines[0])) lines.shift();
+    while (lines.length && drop(lines[lines.length - 1])) lines.pop();
     return lines.join("\n").trim();
   }
 

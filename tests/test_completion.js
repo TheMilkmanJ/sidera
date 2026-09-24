@@ -27,4 +27,8 @@ assert.equal(
   "sideraflow",
 );
 assert.equal(finishedAnswer("sideraflow"), "sideraflow");
+assert.equal(
+  finishedAnswer("A small city should close its downtown streets to cars.\nExplore pedestrianization benefits"),
+  "A small city should close its downtown streets to cars.",
+);
 console.log("completion ok");
