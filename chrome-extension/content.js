@@ -137,7 +137,12 @@
     if (msg.type === "ASSIGN_HEMISPHERE") {
       hemisphere = msg.hemisphere;
       isPaired = true;
-      restoreTurn();
+      if (msg.baseline === false) {
+        lastCompletedText = "";
+        sawStop = false;
+      } else {
+        restoreTurn();
+      }
       startObserver();
       sendResponse({ status: "paired", hemisphere: hemisphere });
     } else if (msg.type === "INJECT_AND_SUBMIT") {

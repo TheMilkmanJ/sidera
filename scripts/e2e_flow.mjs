@@ -68,8 +68,8 @@ async function bootPage(page, worldName) {
     await evaluate(readFileSync(path.join(root, "chrome-extension", name), "utf8"));
   }
   return {
-    async assign(hemisphere) {
-      return evaluate(`new Promise((resolve) => globalThis.__sideraIn({ type: "ASSIGN_HEMISPHERE", hemisphere: ${JSON.stringify(hemisphere)} }, {}, resolve))`);
+    async assign(hemisphere, baseline = true) {
+      return evaluate(`new Promise((resolve) => globalThis.__sideraIn({ type: "ASSIGN_HEMISPHERE", hemisphere: ${JSON.stringify(hemisphere)}, baseline: ${baseline} }, {}, resolve))`);
     },
     async inject(text, messageId) {
       return evaluate(`new Promise((resolve) => globalThis.__sideraIn({ type: "INJECT_AND_SUBMIT", text: ${JSON.stringify(text)}, message_id: ${JSON.stringify(messageId)} }, {}, resolve))`);
@@ -154,9 +154,9 @@ if (!sent.ok) throw new Error(`ChatGPT send failed: ${sent.error} ${sent.text ||
 
 const urls = { LEFT: chatgpt.url(), RIGHT: grok.url() };
 const bridges = { LEFT: left, RIGHT: right };
-async function rebind(which, page) {
+async function rebind(which, page, baseline = true) {
   const bridge = await bootPage(page, `sidera-${which}-${Date.now()}`);
-  await bridge.assign(which);
+  await bridge.assign(which, baseline);
   bridges[which] = bridge;
   urls[which] = page.url();
   await page.evaluate(() => {
@@ -168,8 +168,12 @@ const deadline = Date.now() + 180000;
 const submits = [];
 let error = null;
 while (Date.now() < deadline && submits.length < 2) {
-  if (chatgpt.url() !== urls.LEFT) await rebind("LEFT", chatgpt);
-  if (grok.url() !== urls.RIGHT) await rebind("RIGHT", grok);
+  if (chatgpt.url() !== urls.LEFT) {
+    await rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT"));
+  }
+  if (grok.url() !== urls.RIGHT) {
+    await rebind("RIGHT", grok, !submits.some((message) => message.destination === "RIGHT"));
+  }
   let packets = [];
   try {
     await bridges.LEFT.note();
