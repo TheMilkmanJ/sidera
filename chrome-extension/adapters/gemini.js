@@ -65,7 +65,9 @@ const GeminiAdapter = {
       const nested = el.querySelector(sel);
       if (nested && (nested.innerText || "").trim()) return nested.innerText.trim();
     }
-    return (el.innerText || "").trim();
+    const visible = (el.innerText || "").trim();
+    if (visible) return visible;
+    return (el.textContent || "").replace(/\s+/g, " ").trim();
   },
   isComposerReady() {
     const composer = SideraDom.queryFirst(this.selectors.composerTextarea, { visible: true });
