@@ -17,6 +17,10 @@ assert.equal(
   true,
 );
 assert.equal(isInterimStatus("Opened page\nen.wikipedia.org/wiki/Pineapple"), true);
+assert.equal(
+  isInterimStatus("Analyze specific pedestrian count data\nExplore European pedestrian zone models"),
+  true,
+);
 assert.equal(isInterimStatus("sideraflow"), false);
 assert.equal(
   finishedAnswer("Worked for 8s\nRan 4 searches\nsideraflow\n25 sources"),

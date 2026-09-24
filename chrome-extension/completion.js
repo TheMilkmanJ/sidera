@@ -16,6 +16,8 @@
   function isInterimStatus(text) {
     const lines = statusLines(text);
     if (lines.some((line) => /^(?:working|thinking)\b/i.test(line))) return true;
+    const suggestion = /^(?:analyze|explore|discuss|investigate|compare|show me|learn about)\b/i;
+    if (lines.length > 0 && lines.every((line) => suggestion.test(line))) return true;
     return lines.length === 0 || lines.every((line) => STATUS_LINE.test(line));
   }
 

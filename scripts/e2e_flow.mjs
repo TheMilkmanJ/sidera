@@ -166,24 +166,43 @@ async function rebind(which, page, baseline = true) {
   });
 }
 
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms)),
+  ]);
+}
+
 const deadline = Date.now() + DEADLINE_MS;
 const submits = [];
 let error = null;
+let lastLogged = 0;
 while (Date.now() < deadline && submits.length < TURN_GOAL) {
-  if (chatgpt.url() !== urls.LEFT) {
-    await rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT"));
-  }
-  if (grok.url() !== urls.RIGHT) {
-    await rebind("RIGHT", grok, !submits.some((message) => message.destination === "RIGHT"));
+  try {
+    if (chatgpt.url() !== urls.LEFT) {
+      await withTimeout(rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT")), 8000);
+    }
+    if (grok.url() !== urls.RIGHT) {
+      await withTimeout(rebind("RIGHT", grok, !submits.some((message) => message.destination === "RIGHT")), 8000);
+    }
+  } catch (err) {
+    console.error(`rebind skipped: ${err.message}`);
   }
   let packets = [];
   try {
-    await bridges.LEFT.note();
-    await bridges.RIGHT.note();
-    packets = [...(await bridges.LEFT.drain()), ...(await bridges.RIGHT.drain())];
+    await withTimeout(bridges.LEFT.note(), 4000);
+    await withTimeout(bridges.RIGHT.note(), 4000);
+    packets = [
+      ...(await withTimeout(bridges.LEFT.drain(), 4000)),
+      ...(await withTimeout(bridges.RIGHT.drain(), 4000)),
+    ];
   } catch (err) {
-    await rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT"));
-    await rebind("RIGHT", grok, !submits.some((message) => message.destination === "RIGHT"));
+    try {
+      await withTimeout(rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT")), 8000);
+      await withTimeout(rebind("RIGHT", grok, !submits.some((message) => message.destination === "RIGHT")), 8000);
+    } catch (rebindErr) {
+      console.error(`rebind skipped: ${rebindErr.message}`);
+    }
   }
   for (const packet of packets) {
     send(packet);
