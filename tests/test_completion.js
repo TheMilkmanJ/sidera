@@ -35,4 +35,11 @@ assert.equal(
   finishedAnswer("A small city should close its downtown streets to cars.\nExplore pedestrianization benefits"),
   "A small city should close its downtown streets to cars.",
 );
+const { isErrorReply } = context.globalThis.SideraCompletion;
+assert.equal(isErrorReply("I'm having a hard time fulfilling your request. Can I help you with something else instead?"), true);
+assert.equal(isErrorReply("I seem to be encountering an error. Can I try something else for you?"), true);
+assert.equal(isErrorReply("Something went wrong. Please try again."), true);
+assert.equal(isErrorReply("Something went wrong with that plan, and here is a long real answer about why the four-day week still works for most districts and what the evidence says."), true);
+assert.equal(isErrorReply("An error budget is a useful concept for reliability engineering. Would you agree?"), false);
+assert.equal(isErrorReply("The strongest case for universal basic income is administrative simplicity. What is your view?"), false);
 console.log("completion ok");

@@ -38,7 +38,7 @@
 
   // Short canned messages the sites show when a request failed on their end.
   // These are not the other hemisphere's answer; the send should be retried.
-  const ERROR_REPLY = /^(?:i'm having a hard time fulfilling your request|something went wrong|an error occurred|hmm\.{0,3}\s*something seems to have gone wrong|sorry, something went wrong|oops,? something went wrong|there was an error generating a response|a network error occurred|request timed out|too many requests)/i;
+  const ERROR_REPLY = /^(?:i'm having a hard time fulfilling your request|i seem to be encountering an error|i'm sorry, i encountered an error|something went wrong|an error occurred|hmm\.{0,3}\s*something seems to have gone wrong|sorry, something went wrong|oops,? something went wrong|there was an error generating a response|a network error occurred|request timed out|too many requests)/i;
 
   function isErrorReply(text) {
     const trimmed = String(text || "").trim();
