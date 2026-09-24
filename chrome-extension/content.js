@@ -4,6 +4,7 @@
   let observer = null;
   let debounceTimer = null;
   let lastCompletedText = "";
+  let sawStop = false;
   const DEBOUNCE_MS = 2500;
 
   function adapter() {
@@ -12,18 +13,37 @@
     return null;
   }
 
+  function rememberStop() {
+    sawStop = true;
+    document.documentElement.dataset.sideraSawStop = "1";
+  }
+
+  function restoreTurn() {
+    lastCompletedText = document.documentElement.dataset.sideraLastText || "";
+    sawStop = document.documentElement.dataset.sideraSawStop === "1";
+  }
+
   function checkCompletion() {
     if (!isPaired) return;
     const site = adapter();
     if (!site) return;
-    if (site.isGenerating()) return;
+    if (site.isGenerating()) {
+      rememberStop();
+      return;
+    }
+    if (!sawStop) return;
 
     const latest = site.getLatestAssistantMessage();
-    const text = latest && latest.text ? latest.text : "";
-    if (!text) return;
-    if (text === lastCompletedText) return;
+    const raw = latest && latest.text ? latest.text : "";
+    if (!raw || raw === lastCompletedText) return;
+    if (SideraCompletion.isInterimStatus(raw)) return;
+    const text = SideraCompletion.finishedAnswer(raw);
+    if (!text || text === lastCompletedText) return;
 
     lastCompletedText = text;
+    sawStop = false;
+    document.documentElement.dataset.sideraLastText = text;
+    delete document.documentElement.dataset.sideraSawStop;
     console.log(`[Sidera ${hemisphere}] Detected completed response (${text.length} chars). Notifying mediator.`);
 
     chrome.runtime.sendMessage({
@@ -40,7 +60,9 @@
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(checkCompletion, DEBOUNCE_MS);
     });
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(checkCompletion, DEBOUNCE_MS);
     console.log(`[Sidera ${hemisphere}] DOM observer initialized (${DEBOUNCE_MS}ms quiescence).`);
   }
 
@@ -92,7 +114,7 @@
     if (msg.type === "ASSIGN_HEMISPHERE") {
       hemisphere = msg.hemisphere;
       isPaired = true;
-      lastCompletedText = "";
+      restoreTurn();
       startObserver();
       sendResponse({ status: "paired", hemisphere: hemisphere });
     } else if (msg.type === "INJECT_AND_SUBMIT") {

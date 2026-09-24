@@ -12,7 +12,7 @@ const require = createRequire(process.env.PUPPETEER_REQUIRE || import.meta.url);
 const puppeteer = require("puppeteer-core");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const flowRoot = `/tmp/sidera-flow-${Date.now()}`;
-const PROMPT = "Reply with exactly the single word sideraflow.";
+const PROMPT = "Reply with exactly the single word sideraflow and nothing else. Do not search or use tools.";
 
 function frame(message) {
   const body = Buffer.from(JSON.stringify(message));
@@ -63,7 +63,7 @@ async function bootPage(page, worldName) {
     },
     onMessage: { addListener(fn) { globalThis.__sideraIn = fn; } }
   }};`);
-  for (const name of ["dom_utils.js", "adapters/chatgpt.js", "adapters/grok.js", "content.js"]) {
+  for (const name of ["dom_utils.js", "completion.js", "adapters/chatgpt.js", "adapters/grok.js", "content.js"]) {
     await evaluate(readFileSync(path.join(root, "chrome-extension", name), "utf8"));
   }
   return {
@@ -155,11 +155,11 @@ async function rebind(which, page) {
   bridges[which] = bridge;
   urls[which] = page.url();
   await page.evaluate(() => {
-    document.documentElement.dataset.sideraTick = String(Date.now());
+    document.body.dataset.sideraTick = String(Date.now());
   });
 }
 
-const deadline = Date.now() + 120000;
+const deadline = Date.now() + 180000;
 const submits = [];
 let error = null;
 while (Date.now() < deadline && submits.length < 2) {
@@ -167,8 +167,6 @@ while (Date.now() < deadline && submits.length < 2) {
   if (grok.url() !== urls.RIGHT) await rebind("RIGHT", grok);
   let packets = [];
   try {
-    await bridges.LEFT.check();
-    await bridges.RIGHT.check();
     packets = [...(await bridges.LEFT.drain()), ...(await bridges.RIGHT.drain())];
   } catch (err) {
     await rebind("LEFT", chatgpt);
@@ -193,7 +191,7 @@ while (Date.now() < deadline && submits.length < 2) {
 }
 
 await new Promise((resolve) => setTimeout(resolve, 800));
-for (const packet of [...(await left.drain()), ...(await right.drain())]) send(packet);
+for (const packet of [...(await bridges.LEFT.drain()), ...(await bridges.RIGHT.drain())]) send(packet);
 await new Promise((resolve) => setTimeout(resolve, 500));
 
 const seen = {
@@ -214,10 +212,14 @@ const report = {
   })),
   chatgptHasToken: seen.chatgpt.toLowerCase().includes("sideraflow"),
   grokHasToken: seen.grok.toLowerCase().includes("sideraflow"),
-  grokReplyReachedChatGPT: submits[1] ? seen.chatgpt.includes(submits[1].text.slice(0, 40)) : false,
+  grokReply: submits[1] ? submits[1].text : "",
+  grokReplyReachedChatGPT: submits[1]
+    ? seen.chatgpt.includes(submits[1].text.replace(/\s+/g, " ").trim().slice(0, 40))
+    : false,
+  grokReplyIsFinished: submits[1] ? !/^(worked for|working|thinking|ran \d+ searches)/i.test(submits[1].text.trim()) : false,
   error,
 };
 console.log(JSON.stringify(report, null, 2));
-if (error || submits.length < 2 || !report.chatgptHasToken || !report.grokHasToken) {
+if (error || submits.length < 2 || !report.chatgptHasToken || !report.grokHasToken || !report.grokReplyIsFinished) {
   process.exit(1);
 }

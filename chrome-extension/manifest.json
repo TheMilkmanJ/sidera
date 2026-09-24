@@ -34,6 +34,7 @@
       ],
       "js": [
         "dom_utils.js",
+        "completion.js",
         "adapters/chatgpt.js",
         "adapters/grok.js",
         "content.js"
