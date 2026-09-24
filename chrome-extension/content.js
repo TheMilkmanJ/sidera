@@ -3,9 +3,12 @@
   let hemisphere = null;
   let observer = null;
   let debounceTimer = null;
+  let heartbeatTimer = null;
+  let lastMeaningfulMutation = 0;
   let lastCompletedText = "";
   let sawStop = false;
   const DEBOUNCE_MS = 2500;
+  const HEARTBEAT_MS = 1000;
 
   function adapter() {
     if (globalThis.ChatGPTAdapter && ChatGPTAdapter.identifyTab()) return ChatGPTAdapter;
@@ -65,18 +68,36 @@
     });
   }
 
+  // Spinners and icons animate SVG attributes continuously; that churn must not
+  // count as "the page is still changing" or the quiet period never arrives.
+  function isDecorativeMutation(record) {
+    if (record.type !== "attributes") return false;
+    const target = record.target;
+    return typeof SVGElement !== "undefined" && target instanceof SVGElement;
+  }
+
+  function armDebounce() {
+    lastMeaningfulMutation = Date.now();
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(checkCompletion, DEBOUNCE_MS);
+  }
+
   function startObserver() {
     if (observer) observer.disconnect();
-    observer = new MutationObserver(() => {
+    observer = new MutationObserver((records) => {
       if (!isPaired) return;
       const site = adapter();
       if (site && site.isGenerating()) rememberStop();
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(checkCompletion, DEBOUNCE_MS);
+      if (records.every(isDecorativeMutation)) return;
+      armDebounce();
     });
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(checkCompletion, DEBOUNCE_MS);
+    armDebounce();
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = setInterval(() => {
+      if (!isPaired) return;
+      if (Date.now() - lastMeaningfulMutation >= DEBOUNCE_MS) checkCompletion();
+    }, HEARTBEAT_MS);
     console.log(`[Sidera ${hemisphere}] DOM observer initialized (${DEBOUNCE_MS}ms quiescence).`);
   }
 
@@ -127,8 +148,7 @@
     const site = adapter();
     if (!site || !site.isGenerating()) return;
     rememberStop();
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(checkCompletion, DEBOUNCE_MS);
+    armDebounce();
   }
 
   globalThis.__sideraCheck = checkCompletion;
