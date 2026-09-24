@@ -23,7 +23,37 @@ LEGACY_MEMORY_REGEX = re.compile(
     re.IGNORECASE,
 )
 
+BLOCK_OPERATIONS = ("MEMORY_WRITE", "MEMORY_READ", "FILE_APPEND", "FILE_READ")
+SINGLE_OPERATIONS = ("STOP", "PAUSE", "STATUS", "READY")
+
+# Short spellings accepted alongside the canonical names. SAVE writes a file
+# when a path is given and a memory otherwise.
+ALIASES = {
+    "RECALL": "MEMORY_READ",
+    "READ": "FILE_READ",
+    "REMEMBER": "MEMORY_WRITE",
+    "APPEND": "FILE_APPEND",
+}
+
+READY_WORD_REGEX = re.compile(r"^\W*ready\W*$", re.IGNORECASE)
+
+
+def is_ready_acknowledgement(text: str) -> bool:
+    """True when a reply is nothing but READY (word or tag): a protocol ack, not a turn."""
+    stripped = TAG_SINGLE_REGEX.sub(
+        lambda m: " READY " if m.group(1).upper() == "READY" else m.group(0), text or ""
+    )
+    return bool(READY_WORD_REGEX.match(stripped.strip()))
+
+
 class TagParser:
+    @staticmethod
+    def _canonical(op_name: str, attrs: Dict[str, str]) -> str:
+        name = op_name.upper()
+        if name == "SAVE":
+            return "FILE_APPEND" if attrs.get("path") else "MEMORY_WRITE"
+        return ALIASES.get(name, name)
+
     @staticmethod
     def _parse_attributes(attr_str: str) -> Dict[str, str]:
         attrs = {}
@@ -47,37 +77,43 @@ class TagParser:
         clean_text = raw_text
 
         for match in TAG_BLOCK_REGEX.finditer(raw_text):
-            op_name = match.group(1).upper()
             attr_str = match.group(2)
             body = match.group(3).strip()
             attrs = self._parse_attributes(attr_str)
+            op_name = self._canonical(match.group(1), attrs)
             op = {
                 "type": op_name,
                 "raw_match": match.group(0),
                 "attributes": attrs,
                 "body": body,
             }
-            if op_name in ("MEMORY_WRITE", "MEMORY_READ", "FILE_APPEND", "FILE_READ"):
+            if op_name in BLOCK_OPERATIONS:
+                operations.append(op)
+            elif op_name in SINGLE_OPERATIONS:
+                # A control written in block form still counts as that control.
                 operations.append(op)
             else:
-                errors.append(f"Unknown block tag operation: {op_name}")
+                errors.append(f"Unknown block tag operation: {match.group(1).upper()}")
 
         clean_text = TAG_BLOCK_REGEX.sub("", clean_text)
 
         for match in TAG_SINGLE_REGEX.finditer(clean_text):
-            op_name = match.group(1).upper()
             attr_str = match.group(2)
             attrs = self._parse_attributes(attr_str)
+            op_name = self._canonical(match.group(1), attrs)
             op = {
                 "type": op_name,
                 "raw_match": match.group(0),
                 "attributes": attrs,
                 "body": "",
             }
-            if op_name in ("STOP", "PAUSE", "STATUS"):
+            if op_name in SINGLE_OPERATIONS:
                 operations.append(op)
-            elif op_name not in ("MEMORY_WRITE", "MEMORY_READ", "FILE_APPEND", "FILE_READ"):
-                errors.append(f"Unknown single tag operation: {op_name}")
+            elif op_name in ("MEMORY_READ", "FILE_READ"):
+                # Reads carry no body, so the single form is a natural way to write them.
+                operations.append(op)
+            elif op_name not in BLOCK_OPERATIONS:
+                errors.append(f"Unknown single tag operation: {match.group(1).upper()}")
 
         clean_text = TAG_SINGLE_REGEX.sub("", clean_text)
 
@@ -161,6 +197,8 @@ class TagParser:
                     system_injections.append(
                         f"[SIDERA SYSTEM: Active Turn under Message {parent_message_id}]"
                     )
+                elif op_type == "READY":
+                    control_signals["ready"] = True
             except Exception as e:
                 system_injections.append(f"[SIDERA SYSTEM ERROR executing {op_type}: {str(e)}]")
 

@@ -4,6 +4,9 @@ let nativePort = null;
 let currentMediatorState = "IDLE";
 let currentTurnCount = 0;
 let lastMessageId = null;
+// Genesis Protocol text from the mediator; a tab that starts a fresh chat
+// re-teaches it before continuing.
+let genesisText = "";
 
 const slotRegistry = {
   LEFT: { adapter: "chatgpt", tabId: null },
@@ -16,7 +19,17 @@ function persistSession() {
     currentMediatorState: currentMediatorState,
     currentTurnCount: currentTurnCount,
     lastMessageId: lastMessageId,
+    genesisText: genesisText,
   }).catch(() => {});
+}
+
+function assignTab(tabId, slotId, adapterType, callback) {
+  chrome.tabs.sendMessage(tabId, {
+    type: "ASSIGN_HEMISPHERE",
+    hemisphere: slotId,
+    adapterType: adapterType,
+    genesis: genesisText,
+  }, callback);
 }
 
 // A paired tab that does a full page load (a site's "New chat" or a reload)
@@ -26,11 +39,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   for (const slotId of Object.keys(slotRegistry)) {
     const slot = slotRegistry[slotId];
     if (!slot || slot.tabId !== tabId) continue;
-    chrome.tabs.sendMessage(tabId, {
-      type: "ASSIGN_HEMISPHERE",
-      hemisphere: slotId,
-      adapterType: slot.adapter,
-    }, () => {
+    assignTab(tabId, slotId, slot.adapter, () => {
       if (chrome.runtime.lastError) {
         console.warn(`Re-pairing ${slotId} after navigation failed:`, chrome.runtime.lastError.message);
       }
@@ -77,6 +86,17 @@ function handleMediatorMessage(msg) {
     lastMessageId = msg.last_message_id || null;
     persistSession();
     broadcastStatus();
+  } else if (type === "GENESIS_TEXT") {
+    genesisText = msg.text || "";
+    persistSession();
+    for (const slotId of Object.keys(slotRegistry)) {
+      const slot = slotRegistry[slotId];
+      if (slot && slot.tabId) {
+        chrome.tabs.sendMessage(slot.tabId, { type: "SET_GENESIS", genesis: genesisText }, () => {
+          void chrome.runtime.lastError;
+        });
+      }
+    }
   } else if (type === "SUBMIT_MESSAGE") {
     const dest = msg.destination.toUpperCase();
     const slot = slotRegistry[dest];
@@ -129,11 +149,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const tab = tabs[0];
       slotRegistry[slotId] = { adapter: adapterType, tabId: tab.id };
       persistSession();
-      chrome.tabs.sendMessage(tab.id, {
-        type: "ASSIGN_HEMISPHERE",
-        hemisphere: slotId,
-        adapterType: adapterType,
-      }, (resp) => {
+      assignTab(tab.id, slotId, adapterType, (resp) => {
         sendToMediator({
           type: "HOOK_SLOT",
           slot_id: slotId,
@@ -160,12 +176,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 chrome.storage.session.get(
-  ["slotRegistry", "currentMediatorState", "currentTurnCount", "lastMessageId"],
+  ["slotRegistry", "currentMediatorState", "currentTurnCount", "lastMessageId", "genesisText"],
   (data) => {
     if (data && data.slotRegistry) {
       if (data.slotRegistry.LEFT) slotRegistry.LEFT = data.slotRegistry.LEFT;
       if (data.slotRegistry.RIGHT) slotRegistry.RIGHT = data.slotRegistry.RIGHT;
     }
+    if (data && typeof data.genesisText === "string") genesisText = data.genesisText;
     if (data && data.currentMediatorState) currentMediatorState = data.currentMediatorState;
     if (data && typeof data.currentTurnCount === "number") currentTurnCount = data.currentTurnCount;
     if (data && data.lastMessageId) lastMessageId = data.lastMessageId;

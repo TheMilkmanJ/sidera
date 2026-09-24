@@ -6,10 +6,11 @@ message ledger, memory, file sandbox, and tag processing.
 
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from mediator.file_sandbox import FileSandbox
 from mediator.ipc import NativeMessagingIPC
@@ -17,14 +18,37 @@ from mediator.logging_config import setup_logging
 from mediator.memory_store import MemoryStore
 from mediator.message_ledger import MessageLedger
 from mediator.state_machine import MediatorState, StateMachine
-from mediator.tag_parser import TagParser
+from mediator.tag_parser import TagParser, is_ready_acknowledgement
 
 logger = logging.getLogger("sidera.core")
 
+GENESIS_PROMPT_PATH = Path(__file__).resolve().parent / "genesis_protocol.md"
+GENESIS_MESSAGE_PREFIX = "GENESIS-"
+
+
+def load_genesis_prompt(path: Path = GENESIS_PROMPT_PATH) -> str:
+    return path.read_text(encoding="utf-8").strip()
+
+
 class MediatorService:
-    def __init__(self, root_dir: Optional[Path] = None, max_turns: int = 50):
+    def __init__(
+        self,
+        root_dir: Optional[Path] = None,
+        max_turns: int = 50,
+        genesis_enabled: Optional[bool] = None,
+    ):
         self.root_dir = (root_dir or Path(__file__).resolve().parent.parent / "data").resolve()
         self.root_dir.mkdir(parents=True, exist_ok=True)
+
+        # The Genesis Protocol is taught to both sides before the first turn.
+        # SIDERA_GENESIS=off skips it (used by the pure copy-paste checks).
+        if genesis_enabled is None:
+            genesis_enabled = os.environ.get("SIDERA_GENESIS", "on").lower() not in ("off", "0", "false", "no")
+        self.genesis_enabled = genesis_enabled
+        self.genesis_prompt = load_genesis_prompt() if genesis_enabled else ""
+        self.genesis_pending: List[str] = []
+        self.genesis_target: Optional[str] = None
+        self.genesis_initial_side = "LEFT"
 
         setup_logging(self.root_dir / "logs")
         logger.info(f"Initializing Sidera Mediator Service at {self.root_dir}")
@@ -110,6 +134,51 @@ class MediatorService:
             )
             f.write(f"\n{clean_text.strip()}\n\n---\n\n")
 
+    # --- Genesis Protocol handshake -------------------------------------------------
+
+    def _begin_genesis(self, initial_side: str):
+        other = "RIGHT" if initial_side == "LEFT" else "LEFT"
+        self.genesis_initial_side = initial_side
+        self.genesis_pending = [initial_side, other]
+        self.ipc.send_message({"type": "GENESIS_TEXT", "text": self.genesis_prompt})
+        self._write_transcript_line("- **Genesis:** protocol handshake started\n")
+        self._send_genesis_to_next()
+
+    def _send_genesis_to_next(self):
+        if not self.genesis_pending:
+            self.genesis_target = None
+            logger.info("GENESIS complete; both hemispheres acknowledged. Waiting for the opening prompt in %s.", self.genesis_initial_side)
+            self._write_transcript_line("- **Genesis:** complete\n")
+            self.ipc.send_message({"type": "GENESIS_COMPLETE"})
+            self.state_machine.start(self.genesis_initial_side)
+            return
+        self.genesis_target = self.genesis_pending.pop(0)
+        logger.info("GENESIS sent to %s", self.genesis_target)
+        self._write_transcript_line(f"- **Genesis:** sent to `{self.genesis_target}`\n")
+        self.ipc.send_message({
+            "type": "SUBMIT_MESSAGE",
+            "destination": self.genesis_target,
+            "message_id": f"{GENESIS_MESSAGE_PREFIX}{self.genesis_target}",
+            "text": self.genesis_prompt,
+        })
+
+    def _handle_genesis_reply(self, source: str, raw_content: str) -> bool:
+        """Consume a reply while the handshake runs. Returns True when it was consumed."""
+        if self.genesis_target is None:
+            return False
+        if source != self.genesis_target:
+            logger.warning("Ignored reply from %s while waiting for %s to acknowledge the Genesis Protocol", source, self.genesis_target)
+            return True
+        if is_ready_acknowledgement(raw_content):
+            logger.info("GENESIS acknowledged by %s (READY)", source)
+            self._write_transcript_line(f"- **Genesis:** `{source}` replied READY\n")
+        else:
+            preview = " ".join(raw_content.split())[:120]
+            logger.warning("GENESIS reply from %s was not READY; continuing anyway: %s", source, preview)
+            self._write_transcript_line(f"- **Genesis:** `{source}` replied without READY: `{preview}`\n")
+        self._send_genesis_to_next()
+        return True
+
     def handle_message(self, packet: Dict[str, Any]):
         msg_type = packet.get("type", "").upper()
         logger.info(f"Handling incoming packet: {msg_type}")
@@ -130,8 +199,11 @@ class MediatorService:
             })
 
         elif msg_type == "START":
-            initial_side = packet.get("initial_hemisphere", "LEFT")
-            self.state_machine.start(initial_side)
+            initial_side = packet.get("initial_hemisphere", "LEFT").upper()
+            if self.genesis_enabled and self.genesis_prompt:
+                self._begin_genesis(initial_side)
+            else:
+                self.state_machine.start(initial_side)
 
         elif msg_type == "PAUSE":
             self.state_machine.pause(packet.get("reason", "User requested pause"))
@@ -157,6 +229,13 @@ class MediatorService:
         elif msg_type == "RESPONSE_CAPTURED":
             source = packet.get("source", "").upper()
             raw_content = packet.get("content", "")
+            if self._handle_genesis_reply(source, raw_content):
+                return
+            if is_ready_acknowledgement(raw_content):
+                # A bare READY outside the handshake (for example after a chat was
+                # restarted and re-taught) is an acknowledgement, not a turn.
+                logger.info("READY acknowledgement from %s noted; not forwarded", source)
+                return
             waiting_for_source = (
                 source == "LEFT" and self.state_machine.state in (MediatorState.WAIT_LEFT, MediatorState.IDLE)
             ) or (
@@ -240,6 +319,9 @@ class MediatorService:
         elif msg_type == "SUBMISSION_CONFIRMED":
             dest = packet.get("destination", "").upper()
             message_id = packet.get("message_id")
+            if message_id and str(message_id).startswith(GENESIS_MESSAGE_PREFIX):
+                logger.info("GENESIS delivered to %s", dest)
+                return
             if message_id:
                 self.ledger.update_status(message_id, "ACKNOWLEDGED")
                 self.ledger.record_turn(
@@ -263,6 +345,12 @@ class MediatorService:
             self._write_transcript_line(
                 f"- **Error signal:** `INJECTION_ERROR` message=`{message_id}` detail=`{detail}`\n"
             )
+            if message_id and str(message_id).startswith(GENESIS_MESSAGE_PREFIX):
+                # Do not strand the session in ERROR before it starts; move on and
+                # let the operator see the warning in the log.
+                logger.warning("GENESIS could not be pasted into %s; continuing without its acknowledgement", packet.get("hemisphere"))
+                self._send_genesis_to_next()
+                return
             self.state_machine.error(detail)
 
         elif msg_type == "MANUAL_FORWARD":

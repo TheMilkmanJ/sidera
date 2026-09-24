@@ -79,6 +79,37 @@
     return true;
   }
 
+  // A fresh chat has forgotten the Genesis Protocol. When the mediator gave
+  // us the protocol text, teach it first; the READY reply is swallowed here
+  // and the queued message is pasted once it arrives.
+  function genesisText() {
+    return document.documentElement.dataset.sideraGenesis || "";
+  }
+
+  function queueAfterGenesis(text, messageId, options) {
+    document.documentElement.dataset.sideraAfterGenesis = JSON.stringify({ text: text, messageId: messageId, options: options || {} });
+    setTimeout(() => injectAndSubmit(genesisText(), `GENESIS-${hemisphere}`, { silent: true }), NEW_CHAT_SETTLE_MS);
+  }
+
+  function takeQueuedAfterGenesis() {
+    const raw = document.documentElement.dataset.sideraAfterGenesis;
+    if (!raw) return null;
+    delete document.documentElement.dataset.sideraAfterGenesis;
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function continueInFreshChat(text, messageId, options) {
+    if (genesisText()) {
+      queueAfterGenesis(text, messageId, options);
+      return;
+    }
+    setTimeout(() => injectAndSubmit(text, messageId, options), NEW_CHAT_SETTLE_MS);
+  }
+
   function rotateAndResend(reason) {
     const pending = loadLastInjected();
     if (!pending || pending.rotated) return false;
@@ -88,7 +119,7 @@
     if (!openFreshChat(site, reason)) return false;
     pending.rotated = true;
     saveLastInjected(pending);
-    setTimeout(() => injectAndSubmit(pending.text, pending.messageId, { silent: true }), NEW_CHAT_SETTLE_MS);
+    continueInFreshChat(pending.text, pending.messageId, { silent: true });
     return true;
   }
 
@@ -169,6 +200,13 @@
     sawStop = false;
     document.documentElement.dataset.sideraLastText = text;
     delete document.documentElement.dataset.sideraSawStop;
+
+    const queued = takeQueuedAfterGenesis();
+    if (queued) {
+      console.log(`[Sidera ${hemisphere}] Genesis acknowledged in the new chat (${text.slice(0, 40)}); pasting ${queued.messageId}.`);
+      setTimeout(() => injectAndSubmit(queued.text, queued.messageId, queued.options), 1500);
+      return;
+    }
     console.log(`[Sidera ${hemisphere}] Detected completed response (${text.length} chars). Notifying mediator.`);
 
     chrome.runtime.sendMessage({
@@ -287,7 +325,7 @@
       const count = pasteCount() + 1;
       if (count > ROTATE_AFTER_PASTES && openFreshChat(site, `${count - 1} messages pasted into this chat`)) {
         setPasteCount(1);
-        setTimeout(() => injectAndSubmit(text, messageId, { silent: true, confirm: true }), NEW_CHAT_SETTLE_MS);
+        continueInFreshChat(text, messageId, { silent: true, confirm: true });
         return;
       }
       setPasteCount(count);
@@ -342,6 +380,7 @@
       hemisphere = msg.hemisphere;
       isPaired = true;
       document.documentElement.dataset.sideraInstance = instanceId;
+      if (typeof msg.genesis === "string" && msg.genesis) document.documentElement.dataset.sideraGenesis = msg.genesis;
       if (msg.baseline === false) {
         lastCompletedText = "";
         sawStop = false;
@@ -353,6 +392,9 @@
     } else if (msg.type === "INJECT_AND_SUBMIT") {
       injectAndSubmit(msg.text, msg.message_id);
       sendResponse({ status: "submitting" });
+    } else if (msg.type === "SET_GENESIS") {
+      if (typeof msg.genesis === "string") document.documentElement.dataset.sideraGenesis = msg.genesis;
+      sendResponse({ status: "ok" });
     }
     return true;
   });

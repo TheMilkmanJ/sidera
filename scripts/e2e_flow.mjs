@@ -71,7 +71,7 @@ async function bootPage(page, worldName) {
   }
   return {
     async assign(hemisphere, baseline = true) {
-      return evaluate(`new Promise((resolve) => globalThis.__sideraIn({ type: "ASSIGN_HEMISPHERE", hemisphere: ${JSON.stringify(hemisphere)}, baseline: ${baseline} }, {}, resolve))`);
+      return evaluate(`new Promise((resolve) => globalThis.__sideraIn({ type: "ASSIGN_HEMISPHERE", hemisphere: ${JSON.stringify(hemisphere)}, baseline: ${baseline}, genesis: ${JSON.stringify(genesisTextForTabs)} }, {}, resolve))`);
     },
     async inject(text, messageId) {
       return evaluate(`new Promise((resolve) => globalThis.__sideraIn({ type: "INJECT_AND_SUBMIT", text: ${JSON.stringify(text)}, message_id: ${JSON.stringify(messageId)} }, {}, resolve))`);
@@ -129,7 +129,11 @@ const host = spawn("python3", ["-u", path.join(root, "scripts/e2e_host.py")], {
   stdio: ["pipe", "pipe", "inherit"],
 });
 const incoming = [];
-attachReader(host.stdout, (message) => incoming.push(message));
+let genesisTextForTabs = "";
+attachReader(host.stdout, (message) => {
+  if (message.type === "GENESIS_TEXT") genesisTextForTabs = message.text || "";
+  incoming.push(message);
+});
 function send(message) {
   host.stdin.write(frame(message));
 }
@@ -144,18 +148,97 @@ await chatgpt.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded", time
 await gemini.goto("https://gemini.google.com/app", { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise((resolve) => setTimeout(resolve, 2500));
 
-send({ type: "START", initial_hemisphere: "LEFT" });
 const left = await bootPage(chatgpt, "sidera-left-" + Date.now());
 const right = await bootPage(gemini, "sidera-right-" + Date.now());
 await left.assign("LEFT");
 await right.assign("RIGHT");
 
+const urls = { LEFT: chatgpt.url(), RIGHT: gemini.url() };
+const bridges = { LEFT: left, RIGHT: right };
+const GENESIS_PREFIX = "GENESIS-";
+const genesisDelivered = [];
+
+async function pressGeminiEnterIfPending() {
+  const box = await gemini.evaluate(() => {
+    const el = document.querySelector(".ql-editor[aria-label='Enter a prompt for Gemini']");
+    if (!el || !(el.innerText || "").trim()) return null;
+    const rect = el.getBoundingClientRect();
+    return { x: rect.x + 24, y: rect.y + 12 };
+  });
+  if (box) {
+    await gemini.mouse.click(box.x, box.y);
+    await gemini.keyboard.press("Enter");
+  }
+}
+
+async function deliver(message) {
+  const target = bridges[message.destination] || bridges.LEFT;
+  await Promise.race([
+    target.inject(message.text, message.message_id),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ]);
+  const shown = message.destination === "RIGHT" ? gemini : chatgpt;
+  await shown.bringToFront();
+  if (message.destination === "LEFT") {
+    const pending = await chatgpt.evaluate(() => {
+      const el = document.querySelector("#prompt-textarea");
+      return !!(el && (el.innerText || "").trim());
+    });
+    if (pending) {
+      await chatgpt.evaluate(() => {
+        const send = [...document.querySelectorAll("button")].find((button) => /send message/i.test(button.getAttribute("aria-label") || "") && !button.disabled && button.getBoundingClientRect().height > 0);
+        if (send) send.click();
+      });
+    }
+  }
+  if (message.destination === "RIGHT") {
+    await pressGeminiEnterIfPending();
+  }
+}
+
+async function pumpBridges() {
+  const packets = [
+    ...(await withTimeout(bridges.LEFT.drain(), 4000)),
+    ...(await withTimeout(bridges.RIGHT.drain(), 4000)),
+  ];
+  for (const packet of packets) send(packet);
+}
+
+send({ type: "START", initial_hemisphere: "LEFT" });
+
+// With the Genesis Protocol on, the mediator teaches both sides first and
+// reports GENESIS_COMPLETE; only then does the opening prompt go in.
+const genesisOn = (process.env.SIDERA_GENESIS || "on").toLowerCase() !== "off";
+if (genesisOn) {
+  const handshakeDeadline = Date.now() + 240000;
+  let complete = false;
+  while (!complete && Date.now() < handshakeDeadline) {
+    while (incoming.length) {
+      const message = incoming.shift();
+      if (message.type === "SUBMIT_MESSAGE" && message.message_id.startsWith(GENESIS_PREFIX)) {
+        genesisDelivered.push(message.destination);
+        console.error(`genesis -> ${message.destination}`);
+        await deliver(message);
+      } else if (message.type === "GENESIS_COMPLETE") {
+        complete = true;
+      }
+    }
+    try {
+      await withTimeout(bridges.LEFT.note(), 4000);
+      await withTimeout(bridges.RIGHT.note(), 4000);
+      await pumpBridges();
+    } catch (err) {
+      console.error(`genesis pump skipped: ${err.message}`);
+    }
+    if (!complete) await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  if (!complete) throw new Error("Genesis handshake did not complete");
+  console.error("genesis complete");
+}
+
 await chatgpt.bringToFront();
 const sent = await sendChatGPT(chatgpt);
 if (!sent.ok) throw new Error(`ChatGPT send failed: ${sent.error} ${sent.text || ""}`);
-
-const urls = { LEFT: chatgpt.url(), RIGHT: gemini.url() };
-const bridges = { LEFT: left, RIGHT: right };
 async function rebind(which, page, baseline = true) {
   const bridge = await bootPage(page, `sidera-${which}-${Date.now()}`);
   await bridge.assign(which, baseline);
@@ -211,38 +294,8 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
   while (incoming.length) {
     const message = incoming.shift();
     if (message.type === "SUBMIT_MESSAGE") {
-      submits.push(message);
-      const target = bridges[message.destination] || bridges.LEFT;
-      await Promise.race([
-        target.inject(message.text, message.message_id),
-        new Promise((resolve) => setTimeout(resolve, 5000)),
-      ]);
-      const shown = message.destination === "RIGHT" ? gemini : chatgpt;
-      await shown.bringToFront();
-      if (message.destination === "LEFT") {
-        const pending = await chatgpt.evaluate(() => {
-          const el = document.querySelector("#prompt-textarea");
-          return !!(el && (el.innerText || "").trim());
-        });
-        if (pending) {
-          await chatgpt.evaluate(() => {
-            const send = [...document.querySelectorAll("button")].find((button) => /send message/i.test(button.getAttribute("aria-label") || "") && !button.disabled && button.getBoundingClientRect().height > 0);
-            if (send) send.click();
-          });
-        }
-      }
-      if (message.destination === "RIGHT") {
-        const box = await gemini.evaluate(() => {
-          const el = document.querySelector(".ql-editor[aria-label='Enter a prompt for Gemini']");
-          if (!el || !(el.innerText || "").trim()) return null;
-          const rect = el.getBoundingClientRect();
-          return { x: rect.x + 24, y: rect.y + 12 };
-        });
-        if (box) {
-          await gemini.mouse.click(box.x, box.y);
-          await gemini.keyboard.press("Enter");
-        }
-      }
+      if (!message.message_id.startsWith(GENESIS_PREFIX)) submits.push(message);
+      await deliver(message);
     }
     if (message.type === "STATE_UPDATE" && message.state === "ERROR") {
       error = message.last_error || "mediator error";
@@ -258,16 +311,7 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
     try {
       await withTimeout(rebind("LEFT", chatgpt, false), 8000);
       await withTimeout(rebind("RIGHT", gemini, false), 8000);
-      const box = await gemini.evaluate(() => {
-        const el = document.querySelector(".ql-editor[aria-label='Enter a prompt for Gemini']");
-        if (!el || !(el.innerText || "").trim()) return null;
-        const rect = el.getBoundingClientRect();
-        return { x: rect.x + 24, y: rect.y + 12 };
-      });
-      if (box) {
-        await gemini.mouse.click(box.x, box.y);
-        await gemini.keyboard.press("Enter");
-      }
+      await pressGeminiEnterIfPending();
     } catch (err) {
       console.error(`retry skipped: ${err.message}`);
     }

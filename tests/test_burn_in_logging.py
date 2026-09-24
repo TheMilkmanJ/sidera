@@ -22,7 +22,7 @@ class TestBurnInLogging(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
-        self.service = MediatorService(root_dir=self.root, max_turns=50)
+        self.service = MediatorService(root_dir=self.root, max_turns=50, genesis_enabled=False)
         self.service.ipc = FakeIPC()
 
     def tearDown(self):
@@ -103,7 +103,7 @@ class TestBurnInLogging(unittest.TestCase):
 
         big_dir = tempfile.TemporaryDirectory()
         big_root = Path(big_dir.name)
-        service = MediatorService(root_dir=big_root, max_turns=2000)
+        service = MediatorService(root_dir=big_root, max_turns=2000, genesis_enabled=False)
         service.ipc = FakeIPC()
         for handler in logging.getLogger().handlers:
             if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):

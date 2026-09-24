@@ -247,6 +247,48 @@ function makeContext() {
   assert.strictEqual(t.ctx.document.documentElement.dataset.sideraPasteCount, "1");
 }
 
+// With the Genesis Protocol known, a fresh chat is taught first; its READY is
+// swallowed, then the queued message goes in and is confirmed to the mediator.
+{
+  const t = makeContext();
+  t.site.newChats = 0;
+  t.site.startNewChat = function () { this.newChats += 1; this.latest = ""; return true; };
+  const genesis = "[SIDERA GENESIS PROTOCOL]\nUse the tags.\nReply now with exactly one word and nothing else: READY";
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT", genesis }, {}, () => {});
+  t.ctx.document.documentElement.dataset.sideraPasteCount = "50";
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "message fifty-one", message_id: "SIDERA-0000151" }, {}, () => {});
+  assert.strictEqual(t.site.newChats, 1);
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.composer, genesis, "protocol is pasted before the message");
+  assert.strictEqual(t.site.submits, 1);
+
+  t.site.latest = "READY";
+  t.advance(20000);
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 0, "READY is not sent to the mediator");
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.composer, "message fifty-one");
+  assert.strictEqual(t.site.submits, 2);
+  assert.strictEqual(t.sent.filter((m) => m.type === "SUBMISSION_CONFIRMED").map((m) => m.message_id).join(","), "SIDERA-0000151");
+
+  t.advance(20000);
+  t.site.latest = "A real reply in the fresh chat. Agreed?";
+  t.ctx.__sideraHeartbeat();
+  const captured = t.sent.filter((m) => m.type === "RESPONSE_CAPTURED");
+  assert.strictEqual(captured.length, 1);
+  assert.strictEqual(captured[0].content, t.site.latest);
+}
+
+// SET_GENESIS can arrive after pairing.
+{
+  const t = makeContext();
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "LEFT" }, {}, () => {});
+  t.ctx.__in({ type: "SET_GENESIS", genesis: "protocol text" }, {}, () => {});
+  assert.strictEqual(t.ctx.document.documentElement.dataset.sideraGenesis, "protocol text");
+}
+
 // A newer paired copy retires the older one.
 {
   const t = makeContext();
