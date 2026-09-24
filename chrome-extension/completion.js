@@ -38,11 +38,18 @@
 
   // Short canned messages the sites show when a request failed on their end.
   // These are not the other hemisphere's answer; the send should be retried.
-  const ERROR_REPLY = /^(?:i'm having a hard time fulfilling your request|i seem to be encountering an error|i'm sorry, i encountered an error|something went wrong|an error occurred|hmm\.{0,3}\s*something seems to have gone wrong|sorry, something went wrong|oops,? something went wrong|there was an error generating a response|a network error occurred|request timed out|too many requests)/i;
+  // Gemini alone has several wordings ("I'm having a hard time fulfilling
+  // your request", "I seem to be encountering an error", "I encountered an
+  // error doing what you asked"), so match the shape rather than a fixed list:
+  // a short message about an error or asking to try again / try something else.
+  const ERROR_PHRASE = /(?:encounter(?:ed|ing)? an error|an error occurred|there was an error|went wrong|gone wrong|hard time fulfilling|try again|something else instead|try something else|please try (?:again )?later|unable to (?:respond|process|complete)|network error|request timed out|too many requests)/i;
+  const ERROR_MAX_CHARS = 240;
 
   function isErrorReply(text) {
     const trimmed = String(text || "").trim();
-    return trimmed.length > 0 && trimmed.length < 400 && ERROR_REPLY.test(trimmed);
+    if (!trimmed || trimmed.length > ERROR_MAX_CHARS) return false;
+    if (trimmed.split(/\n+/).length > 3) return false;
+    return ERROR_PHRASE.test(trimmed);
   }
 
   root.SideraCompletion = { isInterimStatus, finishedAnswer, isErrorReply };
