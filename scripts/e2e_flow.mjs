@@ -177,6 +177,7 @@ const deadline = Date.now() + DEADLINE_MS;
 const submits = [];
 let error = null;
 let lastLogged = 0;
+let lastProgress = Date.now();
 while (Date.now() < deadline && submits.length < TURN_GOAL) {
   try {
     if (chatgpt.url() !== urls.LEFT) {
@@ -216,8 +217,21 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
         target.inject(message.text, message.message_id),
         new Promise((resolve) => setTimeout(resolve, 5000)),
       ]);
+      const shown = message.destination === "RIGHT" ? gemini : chatgpt;
+      await shown.bringToFront();
+      if (message.destination === "LEFT") {
+        const pending = await chatgpt.evaluate(() => {
+          const el = document.querySelector("#prompt-textarea");
+          return !!(el && (el.innerText || "").trim());
+        });
+        if (pending) {
+          await chatgpt.evaluate(() => {
+            const send = [...document.querySelectorAll("button")].find((button) => /send message/i.test(button.getAttribute("aria-label") || "") && !button.disabled && button.getBoundingClientRect().height > 0);
+            if (send) send.click();
+          });
+        }
+      }
       if (message.destination === "RIGHT") {
-        await gemini.bringToFront();
         const box = await gemini.evaluate(() => {
           const el = document.querySelector(".ql-editor[aria-label='Enter a prompt for Gemini']");
           if (!el || !(el.innerText || "").trim()) return null;
@@ -232,12 +246,32 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
     }
     if (message.type === "STATE_UPDATE" && message.state === "ERROR") {
       error = message.last_error || "mediator error";
+      console.error(`mediator error: ${error}`);
     }
   }
-  if (error) break;
   if (submits.length !== lastLogged) {
     lastLogged = submits.length;
+    lastProgress = Date.now();
     console.error(`forwarded ${submits.length}/${TURN_GOAL} ${submits.at(-1).destination} ${submits.at(-1).message_id}`);
+  } else if (Date.now() - lastProgress > 20000) {
+    console.error(`still waiting at ${submits.length}/${TURN_GOAL}, checking both chats again`);
+    try {
+      await withTimeout(rebind("LEFT", chatgpt, false), 8000);
+      await withTimeout(rebind("RIGHT", gemini, false), 8000);
+      const box = await gemini.evaluate(() => {
+        const el = document.querySelector(".ql-editor[aria-label='Enter a prompt for Gemini']");
+        if (!el || !(el.innerText || "").trim()) return null;
+        const rect = el.getBoundingClientRect();
+        return { x: rect.x + 24, y: rect.y + 12 };
+      });
+      if (box) {
+        await gemini.mouse.click(box.x, box.y);
+        await gemini.keyboard.press("Enter");
+      }
+    } catch (err) {
+      console.error(`retry skipped: ${err.message}`);
+    }
+    lastProgress = Date.now();
   }
   await new Promise((resolve) => setTimeout(resolve, 300));
 }

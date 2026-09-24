@@ -21,6 +21,10 @@ assert.equal(
   isInterimStatus("Analyze specific pedestrian count data\nExplore European pedestrian zone models"),
   true,
 );
+assert.equal(
+  isInterimStatus("The evidence\nScienceDirect\n+1\nTaylor & Francis Online\nScienceDirect\neScholarship"),
+  true,
+);
 assert.equal(isInterimStatus("sideraflow"), false);
 assert.equal(
   finishedAnswer("Worked for 8s\nRan 4 searches\nsideraflow\n25 sources"),

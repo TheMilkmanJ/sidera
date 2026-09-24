@@ -59,15 +59,24 @@ const GeminiAdapter = {
     const filled = nodes.map((el) => ({ element: el, text: this._textOf(el) })).filter((item) => item.text);
     return filled.length ? filled[filled.length - 1] : null;
   },
+  _read(node) {
+    const visible = (node.innerText || "").trim();
+    if (visible) return visible;
+    return (node.textContent || "").replace(/\s+/g, " ").trim();
+  },
   _textOf(el) {
     for (const sel of this.selectors.messageContent) {
-      if (el.matches && el.matches(sel)) return (el.innerText || "").trim();
+      if (el.matches && el.matches(sel)) {
+        const text = this._read(el);
+        if (text) return text;
+      }
       const nested = el.querySelector(sel);
-      if (nested && (nested.innerText || "").trim()) return nested.innerText.trim();
+      if (nested) {
+        const text = this._read(nested);
+        if (text) return text;
+      }
     }
-    const visible = (el.innerText || "").trim();
-    if (visible) return visible;
-    return (el.textContent || "").replace(/\s+/g, " ").trim();
+    return this._read(el);
   },
   isComposerReady() {
     const composer = SideraDom.queryFirst(this.selectors.composerTextarea, { visible: true });
