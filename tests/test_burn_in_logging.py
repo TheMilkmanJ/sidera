@@ -95,6 +95,72 @@ class TestBurnInLogging(unittest.TestCase):
         self.assertIn("Composer submit control was not available.", transcript)
         self.assertIn("**Error signal:** `INJECTION_ERROR`", transcript)
 
+    def test_two_thousand_turn_burn_in(self):
+        root_logger = logging.getLogger()
+        for handler in list(root_logger.handlers):
+            handler.close()
+            root_logger.removeHandler(handler)
+
+        big_dir = tempfile.TemporaryDirectory()
+        big_root = Path(big_dir.name)
+        service = MediatorService(root_dir=big_root, max_turns=2000)
+        service.ipc = FakeIPC()
+        for handler in logging.getLogger().handlers:
+            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                handler.setLevel(logging.ERROR)
+        try:
+            service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+            for index in range(2000):
+                source = "LEFT" if index % 2 == 0 else "RIGHT"
+                service.handle_message({
+                    "type": "RESPONSE_CAPTURED",
+                    "source": source,
+                    "content": f"Set {index:04d} from {source}.",
+                })
+                submitted = service.ipc.sent[-1]
+                self.assertEqual(submitted["type"], "SUBMIT_MESSAGE")
+                self.assertEqual(submitted["destination"], "RIGHT" if source == "LEFT" else "LEFT")
+                self.assertEqual(submitted["message_id"], f"SIDERA-{index + 1:07d}")
+                service.handle_message({
+                    "type": "SUBMISSION_CONFIRMED",
+                    "destination": submitted["destination"],
+                    "message_id": submitted["message_id"],
+                })
+
+            self.assertEqual(service.state_machine.turn_count, 2000)
+            self.assertEqual(service.state_machine.state, MediatorState.WAIT_LEFT)
+            self.assertEqual(service.ledger.get_turn_count(service.conversation_id), 2000)
+            self.assertEqual(service.ledger.get_message("SIDERA-0000001")["status"], "ACKNOWLEDGED")
+            self.assertEqual(service.ledger.get_message("SIDERA-0002000")["status"], "ACKNOWLEDGED")
+            self.assertIsNone(service.ledger.get_unacknowledged_message())
+
+            log_text = (big_root / "logs" / "sidera_mediator.log").read_text(encoding="utf-8")
+            self.assertIn("Burn-in ceiling: 2000 autonomous turns", log_text)
+            self.assertIn("STATUS turn=1/2000 state=SEND_RIGHT", log_text)
+            self.assertIn("STATUS turn=2000/2000 state=WAIT_LEFT", log_text)
+            self.assertIn("ACKNOWLEDGED message=SIDERA-0002000", log_text)
+            self.assertNotIn("BURN_IN_LIMIT_REACHED", log_text)
+            self.assertNotIn("[ERROR]", log_text)
+
+            transcript = (big_root / "transcripts" / f"{service.conversation_id}.md").read_text(encoding="utf-8")
+            self.assertEqual(transcript.count("## [SIDERA-"), 2000)
+            self.assertIn("Set 0000 from LEFT.", transcript)
+            self.assertIn("Set 1999 from RIGHT.", transcript)
+
+            service.handle_message({
+                "type": "RESPONSE_CAPTURED",
+                "source": "LEFT",
+                "content": "Turn 2001 must pause at the ceiling.",
+            })
+            self.assertEqual(service.state_machine.state, MediatorState.PAUSED)
+            log_text = (big_root / "logs" / "sidera_mediator.log").read_text(encoding="utf-8")
+            self.assertIn("BURN_IN_LIMIT_REACHED turns=2001/2000", log_text)
+        finally:
+            for handler in list(logging.getLogger().handlers):
+                handler.close()
+                logging.getLogger().removeHandler(handler)
+            big_dir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
