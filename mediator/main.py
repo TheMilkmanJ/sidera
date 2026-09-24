@@ -157,6 +157,18 @@ class MediatorService:
         elif msg_type == "RESPONSE_CAPTURED":
             source = packet.get("source", "").upper()
             raw_content = packet.get("content", "")
+            waiting_for_source = (
+                source == "LEFT" and self.state_machine.state in (MediatorState.WAIT_LEFT, MediatorState.IDLE)
+            ) or (
+                source == "RIGHT" and self.state_machine.state in (MediatorState.WAIT_RIGHT, MediatorState.IDLE)
+            )
+            if not waiting_for_source:
+                logger.warning(
+                    "Ignored unexpected message from %s while in state %s",
+                    source,
+                    self.state_machine.state.value,
+                )
+                return
             dest = self.state_machine.get_next_slot(source)
 
             if self.ledger.is_duplicate(raw_content, source):

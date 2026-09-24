@@ -86,6 +86,8 @@
     }, 200);
   }
 
+  globalThis.__sideraCheck = checkCompletion;
+
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "ASSIGN_HEMISPHERE") {
       hemisphere = msg.hemisphere;

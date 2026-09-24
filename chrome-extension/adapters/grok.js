@@ -70,22 +70,25 @@ const GrokAdapter = {
     return stopBtn !== null && !stopBtn.disabled;
   },
   getLatestAssistantMessage() {
-    const lastMsg = SideraDom.queryLast(this.selectors.assistantMessage);
-    if (!lastMsg) return null;
-    let contentEl = null;
-    for (const sel of this.selectors.messageContent) {
-      if (lastMsg.matches && lastMsg.matches(sel)) {
-        contentEl = lastMsg;
-        break;
+    let nodes = [];
+    for (const sel of this.selectors.assistantMessage) {
+      try {
+        nodes = [...document.querySelectorAll(sel)];
+      } catch (err) {
+        continue;
       }
-      const nested = lastMsg.querySelector(sel);
-      if (nested) {
-        contentEl = nested;
-        break;
-      }
+      if (nodes.length) break;
     }
-    const textSource = contentEl || lastMsg;
-    return { element: lastMsg, text: (textSource.innerText || "").trim() };
+    const filled = nodes.map((el) => ({ element: el, text: this._textOf(el) })).filter((item) => item.text);
+    return filled.length ? filled[filled.length - 1] : null;
+  },
+  _textOf(el) {
+    for (const sel of this.selectors.messageContent) {
+      if (el.matches && el.matches(sel)) return (el.innerText || "").trim();
+      const nested = el.querySelector(sel);
+      if (nested && (nested.innerText || "").trim()) return nested.innerText.trim();
+    }
+    return (el.innerText || "").trim();
   },
   isComposerReady() {
     const composer = SideraDom.queryFirst(this.selectors.composerTextarea, { visible: true });
