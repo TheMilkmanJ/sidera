@@ -1,0 +1,9 @@
+{
+  "name": "com.sidera.mediator",
+  "description": "Sidera Dual-Hemisphere Mediator native host",
+  "path": "C:\\Sidera\\run_mediator.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://pekgjaanmdkkpclhlobpcggibbkgjbgd/"
+  ]
+}
