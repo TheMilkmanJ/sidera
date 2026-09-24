@@ -68,17 +68,26 @@ const ChatGPTAdapter = {
         break;
       }
     }
-    const lastTurn = lastLabeled || SideraDom.queryLast(this.selectors.assistantMessage.slice(0, 4));
-    if (!lastTurn) return null;
-    const heading = lastTurn.querySelector("h4, h3, h2");
-    let text = (lastTurn.innerText || "").trim();
-    if (heading && /^chatgpt said\b/i.test((heading.innerText || "").trim())) {
-      text = text.replace(/^chatgpt said:\s*/i, "").trim();
-    } else {
-      const textSource = this._contentWithin(lastTurn) || lastTurn;
-      text = (textSource.innerText || "").trim();
+    if (lastLabeled) {
+      const text = (lastLabeled.innerText || "").trim().replace(/^chatgpt said:\s*/i, "").trim();
+      if (text) return { element: lastLabeled, text: text };
     }
-    return { element: lastTurn, text: text };
+    // ChatGPT appends empty assistant nodes (ad slots, pending follow-ups)
+    // after the real answer, so take the newest assistant node with text.
+    for (const sel of this.selectors.assistantMessage.slice(0, 4)) {
+      let nodes = [];
+      try {
+        nodes = document.querySelectorAll(sel);
+      } catch (err) {
+        continue;
+      }
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        const textSource = this._contentWithin(nodes[i]) || nodes[i];
+        const text = (textSource.innerText || "").trim();
+        if (text) return { element: nodes[i], text: text };
+      }
+    }
+    return null;
   },
   _contentWithin(root) {
     for (const sel of this.selectors.messageContent) {
