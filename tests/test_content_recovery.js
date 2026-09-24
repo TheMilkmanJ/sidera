@@ -114,6 +114,61 @@ function makeContext() {
   assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 1, "no duplicate capture");
 }
 
+// A canned error is resent once instead of being forwarded; a second
+// failure is forwarded so the conversation never hangs on it.
+{
+  const t = makeContext();
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT" }, {}, () => {});
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "a real question?", message_id: "SIDERA-0000003" }, {}, () => {});
+  t.flushTimers();
+  t.site.latest = "I'm having a hard time fulfilling your request. Can I help you with something else instead?";
+  t.advance(3000);
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 0, "error text is not forwarded");
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.submits, 2, "message resent after error");
+  assert.strictEqual(t.site.composer, "a real question?");
+
+  t.advance(20000);
+  t.site.latest = "A proper answer after the retry. Would you agree?";
+  t.ctx.__sideraHeartbeat();
+  const captured = t.sent.filter((m) => m.type === "RESPONSE_CAPTURED");
+  assert.strictEqual(captured.length, 1);
+  assert.strictEqual(captured[0].content, t.site.latest);
+}
+
+{
+  const t = makeContext();
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT" }, {}, () => {});
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "q", message_id: "SIDERA-0000004" }, {}, () => {});
+  t.flushTimers();
+  t.site.latest = "Something went wrong. Please try again.";
+  t.advance(3000);
+  t.ctx.__sideraHeartbeat();
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.submits, 2);
+  t.advance(20000);
+  t.site.latest = "Something went wrong. Please try again later.";
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 1, "second failure is forwarded rather than hanging");
+}
+
+// A re-paired copy can still retry the message the previous copy pasted.
+{
+  const t = makeContext();
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT" }, {}, () => {});
+  t.ctx.document.documentElement.dataset.sideraInjected = JSON.stringify({ text: "from before", messageId: "SIDERA-0000005", retried: false });
+  t.site.latest = "An error occurred.";
+  t.advance(3000);
+  t.ctx.__sideraHeartbeat();
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.composer, "from before");
+  assert.strictEqual(t.site.submits, 1);
+}
+
 // A newer paired copy retires the older one.
 {
   const t = makeContext();

@@ -26,6 +26,13 @@ class TestMessageLedger(unittest.TestCase):
         self.assertFalse(self.ledger.is_duplicate("Different message", "LEFT"))
         self.assertFalse(self.ledger.is_duplicate(msg, "RIGHT"))
 
+    def test_repeat_of_an_older_message_is_not_a_duplicate(self):
+        canned = "I'm having a hard time fulfilling your request."
+        self.ledger.capture_message("conv", "RIGHT", "LEFT", canned)
+        self.ledger.capture_message("conv", "RIGHT", "LEFT", "A real answer that moves on.")
+        self.assertFalse(self.ledger.is_duplicate(canned, "RIGHT"))
+        self.assertTrue(self.ledger.is_duplicate("A real answer that moves on.", "RIGHT"))
+
     def test_status_transitions(self):
         record = self.ledger.capture_message("conv1", "LEFT", "RIGHT", "Sample")
         msg_id = record["message_id"]

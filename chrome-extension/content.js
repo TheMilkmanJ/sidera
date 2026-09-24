@@ -12,9 +12,40 @@
   // A reply that has shown no new text for this long while the site still
   // claims to be generating is treated as hung: stop it and resend once.
   const STUCK_MS = 6 * 60 * 1000;
-  let lastInjected = null;
+  // After a resend, give the site this long to start before judging again.
+  const RETRY_GRACE_MS = 15 * 1000;
   let generatingSince = 0;
   let generatingLength = -1;
+  let retryIssuedAt = 0;
+
+  // The last message pasted into this page, kept on the document so a
+  // re-paired copy of this script can still retry it.
+  function loadLastInjected() {
+    try {
+      const raw = document.documentElement.dataset.sideraInjected;
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function saveLastInjected(record) {
+    document.documentElement.dataset.sideraInjected = JSON.stringify(record);
+  }
+
+  function retryLastInjection(reason) {
+    const pending = loadLastInjected();
+    if (!pending || pending.retried) return false;
+    pending.retried = true;
+    saveLastInjected(pending);
+    retryIssuedAt = Date.now();
+    generatingSince = 0;
+    console.warn(`[Sidera ${hemisphere}] ${reason}; stopping and resending ${pending.messageId} once.`);
+    const site = adapter();
+    if (site && site.isGenerating() && typeof site.stopGenerating === "function") site.stopGenerating();
+    setTimeout(() => injectAndSubmit(pending.text, pending.messageId, { silent: true }), 3000);
+    return true;
+  }
   // Only one copy of this script should watch a page. If another copy is
   // paired later (extension reload, re-pairing), the older copy steps aside.
   const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -75,12 +106,15 @@
       return;
     }
 
+    if (Date.now() - retryIssuedAt < RETRY_GRACE_MS) return;
+
     const latest = site.getLatestAssistantMessage();
     const raw = latest && latest.text ? latest.text : "";
     if (!raw || raw === lastCompletedText) return;
     if (SideraCompletion.isInterimStatus(raw)) return;
     const text = SideraCompletion.finishedAnswer(raw);
     if (!text || text === lastCompletedText) return;
+    if (SideraCompletion.isErrorReply(text) && retryLastInjection("Site returned an error instead of a reply")) return;
 
     lastCompletedText = text;
     sawStop = false;
@@ -155,18 +189,15 @@
       return;
     }
     if (now - generatingSince < STUCK_MS) return;
-    if (!lastInjected || lastInjected.retried || typeof site.stopGenerating !== "function") return;
-    lastInjected.retried = true;
-    generatingSince = 0;
-    console.warn(`[Sidera ${hemisphere}] Reply hung for ${Math.round(STUCK_MS / 60000)} minutes with no new text; stopping and resending ${lastInjected.messageId}.`);
-    site.stopGenerating();
-    const pending = lastInjected;
-    setTimeout(() => injectAndSubmit(pending.text, pending.messageId, { silent: true }), 3000);
+    if (typeof site.stopGenerating !== "function") return;
+    if (!retryLastInjection(`Reply hung for ${Math.round(STUCK_MS / 60000)} minutes with no new text`)) {
+      generatingSince = now;
+    }
   }
 
   function injectAndSubmit(text, messageId, options) {
     const silent = !!(options && options.silent);
-    if (!silent) lastInjected = { text: text, messageId: messageId, retried: false };
+    if (!silent) saveLastInjected({ text: text, messageId: messageId, retried: false });
     const site = adapter();
     if (!site) {
       chrome.runtime.sendMessage({

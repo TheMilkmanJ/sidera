@@ -68,14 +68,21 @@ class MessageLedger:
             return f"SIDERA-{count + 1:07d}"
 
     def is_duplicate(self, content: str, source: str) -> bool:
+        """True when content repeats the most recent message from this source.
+
+        Only the latest message counts: the guard exists to stop the same reply
+        being forwarded twice, not to reject a side that legitimately says the
+        same thing again later in a long conversation.
+        """
         content_hash = self.compute_sha256(content)
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT 1 FROM messages WHERE content_sha256 = ? AND source = ? LIMIT 1",
-                (content_hash, source),
+                "SELECT content_sha256 FROM messages WHERE source = ? ORDER BY message_id DESC LIMIT 1",
+                (source,),
             )
-            return cursor.fetchone() is not None
+            row = cursor.fetchone()
+            return row is not None and row[0] == content_hash
 
     def capture_message(
         self,
