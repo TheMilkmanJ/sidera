@@ -12,7 +12,8 @@ const require = createRequire(process.env.PUPPETEER_REQUIRE || import.meta.url);
 const puppeteer = require("puppeteer-core");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const flowRoot = `/tmp/sidera-flow-${Date.now()}`;
-const PROMPT = "Reply with exactly the single word sideraflow and nothing else. Do not search or use tools.";
+const PROMPT = "Reply with exactly the single word pastebridge and nothing else. Do not search or use tools.";
+const TOKEN = "pastebridge";
 
 function frame(message) {
   const body = Buffer.from(JSON.stringify(message));
@@ -76,8 +77,8 @@ async function bootPage(page, worldName) {
     async drain() {
       return evaluate(`(() => { const items = globalThis.__captured || []; globalThis.__captured = []; return items; })()`);
     },
-    async check() {
-      return evaluate(`(() => { if (globalThis.__sideraCheck) globalThis.__sideraCheck(); return true; })()`);
+    async note() {
+      return evaluate(`(() => { if (globalThis.__sideraNote) globalThis.__sideraNote(); return true; })()`);
     },
   };
 }
@@ -167,6 +168,8 @@ while (Date.now() < deadline && submits.length < 2) {
   if (grok.url() !== urls.RIGHT) await rebind("RIGHT", grok);
   let packets = [];
   try {
+    await bridges.LEFT.note();
+    await bridges.RIGHT.note();
     packets = [...(await bridges.LEFT.drain()), ...(await bridges.RIGHT.drain())];
   } catch (err) {
     await rebind("LEFT", chatgpt);
@@ -210,8 +213,8 @@ const report = {
     message_id: message.message_id,
     text: message.text.slice(0, 240),
   })),
-  chatgptHasToken: seen.chatgpt.toLowerCase().includes("sideraflow"),
-  grokHasToken: seen.grok.toLowerCase().includes("sideraflow"),
+  chatgptHasToken: seen.chatgpt.toLowerCase().includes(TOKEN),
+  grokHasToken: seen.grok.toLowerCase().includes(TOKEN),
   grokReply: submits[1] ? submits[1].text : "",
   grokReplyReachedChatGPT: submits[1]
     ? seen.chatgpt.includes(submits[1].text.replace(/\s+/g, " ").trim().slice(0, 40))

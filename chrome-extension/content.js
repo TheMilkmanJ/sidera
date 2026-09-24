@@ -57,6 +57,8 @@
     if (observer) observer.disconnect();
     observer = new MutationObserver(() => {
       if (!isPaired) return;
+      const site = adapter();
+      if (site && site.isGenerating()) rememberStop();
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(checkCompletion, DEBOUNCE_MS);
     });
@@ -108,7 +110,17 @@
     }, 200);
   }
 
+  function noteActivity() {
+    if (!isPaired) return;
+    const site = adapter();
+    if (!site || !site.isGenerating()) return;
+    rememberStop();
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(checkCompletion, DEBOUNCE_MS);
+  }
+
   globalThis.__sideraCheck = checkCompletion;
+  globalThis.__sideraNote = noteActivity;
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "ASSIGN_HEMISPHERE") {
