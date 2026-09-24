@@ -14,8 +14,8 @@ If Not fso.FileExists(chrome) Then
 End If
 
 If fso.FileExists(chrome) Then
-  shell.Run """" & chrome & """ --new-window https://chatgpt.com/ https://grok.com/", 1, False
+  shell.Run """" & chrome & """ --new-window https://chatgpt.com/ https://gemini.google.com/app", 1, False
 Else
   shell.Run "https://chatgpt.com/", 1, False
-  shell.Run "https://grok.com/", 1, False
+  shell.Run "https://gemini.google.com/app", 1, False
 End If

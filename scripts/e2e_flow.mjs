@@ -66,7 +66,7 @@ async function bootPage(page, worldName) {
     },
     onMessage: { addListener(fn) { globalThis.__sideraIn = fn; } }
   }};`);
-  for (const name of ["dom_utils.js", "completion.js", "adapters/chatgpt.js", "adapters/grok.js", "content.js"]) {
+  for (const name of ["dom_utils.js", "completion.js", "adapters/chatgpt.js", "adapters/gemini.js", "adapters/grok.js", "content.js"]) {
     await evaluate(readFileSync(path.join(root, "chrome-extension", name), "utf8"));
   }
   return {
@@ -137,16 +137,16 @@ function send(message) {
 const browser = await puppeteer.connect({ browserURL: "http://127.0.0.1:9333", defaultViewport: null });
 const pages = await browser.pages();
 const chatgpt = pages.find((page) => page.url().includes("chatgpt.com"));
-const grok = pages.find((page) => page.url().includes("grok.com"));
-if (!chatgpt || !grok) throw new Error("ChatGPT or Grok tab is not open");
+const gemini = pages.find((page) => page.url().includes("gemini.google.com"));
+if (!chatgpt || !gemini) throw new Error("ChatGPT or Gemini tab is not open");
 
 await chatgpt.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
-await grok.goto("https://grok.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
+await gemini.goto("https://gemini.google.com/app", { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise((resolve) => setTimeout(resolve, 2500));
 
 send({ type: "START", initial_hemisphere: "LEFT" });
 const left = await bootPage(chatgpt, "sidera-left-" + Date.now());
-const right = await bootPage(grok, "sidera-right-" + Date.now());
+const right = await bootPage(gemini, "sidera-right-" + Date.now());
 await left.assign("LEFT");
 await right.assign("RIGHT");
 
@@ -154,7 +154,7 @@ await chatgpt.bringToFront();
 const sent = await sendChatGPT(chatgpt);
 if (!sent.ok) throw new Error(`ChatGPT send failed: ${sent.error} ${sent.text || ""}`);
 
-const urls = { LEFT: chatgpt.url(), RIGHT: grok.url() };
+const urls = { LEFT: chatgpt.url(), RIGHT: gemini.url() };
 const bridges = { LEFT: left, RIGHT: right };
 async function rebind(which, page, baseline = true) {
   const bridge = await bootPage(page, `sidera-${which}-${Date.now()}`);
@@ -182,8 +182,8 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
     if (chatgpt.url() !== urls.LEFT) {
       await withTimeout(rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT")), 8000);
     }
-    if (grok.url() !== urls.RIGHT) {
-      await withTimeout(rebind("RIGHT", grok, !submits.some((message) => message.destination === "RIGHT")), 8000);
+    if (gemini.url() !== urls.RIGHT) {
+      await withTimeout(rebind("RIGHT", gemini, !submits.some((message) => message.destination === "RIGHT")), 8000);
     }
   } catch (err) {
     console.error(`rebind skipped: ${err.message}`);
@@ -199,7 +199,7 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
   } catch (err) {
     try {
       await withTimeout(rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT")), 8000);
-      await withTimeout(rebind("RIGHT", grok, !submits.some((message) => message.destination === "RIGHT")), 8000);
+      await withTimeout(rebind("RIGHT", gemini, !submits.some((message) => message.destination === "RIGHT")), 8000);
     } catch (rebindErr) {
       console.error(`rebind skipped: ${rebindErr.message}`);
     }
@@ -235,7 +235,7 @@ await new Promise((resolve) => setTimeout(resolve, 500));
 
 const seen = {
   chatgpt: await chatgpt.evaluate(() => (document.body.innerText || "").replace(/\s+/g, " ")),
-  grok: await grok.evaluate(() => (document.body.innerText || "").replace(/\s+/g, " ")),
+  gemini: await gemini.evaluate(() => (document.body.innerText || "").replace(/\s+/g, " ")),
 };
 host.stdin.end();
 await new Promise((resolve) => host.once("exit", resolve));
@@ -250,12 +250,12 @@ const report = {
     text: message.text.slice(0, 800),
   })),
   chatgptHasToken: seen.chatgpt.toLowerCase().includes(TOKEN),
-  grokHasToken: seen.grok.toLowerCase().includes(TOKEN),
-  grokReply: submits[1] ? submits[1].text : "",
-  grokReplyReachedChatGPT: submits[1]
+  geminiHasToken: seen.gemini.toLowerCase().includes(TOKEN),
+  geminiReply: submits[1] ? submits[1].text : "",
+  geminiReplyReachedChatGPT: submits[1]
     ? seen.chatgpt.includes(submits[1].text.replace(/\s+/g, " ").trim().slice(0, 40))
     : false,
-  grokReplyIsFinished: submits[1]
+  geminiReplyIsFinished: submits[1]
     ? !/^(worked for|working|thinking|ran \d+ searches|opened page)/i.test(submits[1].text.trim())
     : false,
   error,
@@ -263,6 +263,6 @@ const report = {
 console.log(JSON.stringify(report, null, 2));
 const interim = /^(worked for|working|thinking|ran \d+ searches|opened page)/i;
 const unfinished = submits.some((message) => interim.test(message.text.trim()));
-if (error || submits.length < TURN_GOAL || unfinished || !report.chatgptHasToken || !report.grokHasToken || !report.grokReplyIsFinished) {
+if (error || submits.length < TURN_GOAL || unfinished || !report.chatgptHasToken || !report.geminiHasToken || !report.geminiReplyIsFinished) {
   process.exit(1);
 }

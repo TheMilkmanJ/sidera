@@ -7,7 +7,7 @@ let lastMessageId = null;
 
 const slotRegistry = {
   LEFT: { adapter: "chatgpt", tabId: null },
-  RIGHT: { adapter: "grok", tabId: null },
+  RIGHT: { adapter: "gemini", tabId: null },
 };
 
 function persistSession() {
@@ -103,7 +103,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
   } else if (reqType === "PAIR_TAB" || reqType === "HOOK_TAB") {
     const slotId = (request.side || request.slotId || "LEFT").toUpperCase();
-    const adapterType = request.adapterType || (slotId === "LEFT" ? "chatgpt" : "grok");
+    const adapterType = request.adapterType || (slotId === "LEFT" ? "chatgpt" : "gemini");
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs || tabs.length === 0) return;

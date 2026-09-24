@@ -9,6 +9,7 @@
 
   function adapter() {
     if (globalThis.ChatGPTAdapter && ChatGPTAdapter.identifyTab()) return ChatGPTAdapter;
+    if (globalThis.GeminiAdapter && GeminiAdapter.identifyTab()) return GeminiAdapter;
     if (globalThis.GrokAdapter && GrokAdapter.identifyTab()) return GrokAdapter;
     return null;
   }

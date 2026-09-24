@@ -31,7 +31,7 @@ class TestInstallScripts(unittest.TestCase):
         self.assertIn("sidera.ico", ps1)
         self.assertIn("//B", ps1)
         self.assertIn("chatgpt.com", vbs)
-        self.assertIn("grok.com", vbs)
+        self.assertIn("gemini.google.com", vbs)
         self.assertNotIn("cmd.exe", vbs.lower())
         self.assertIn("python -u -m mediator.main", host)
         self.assertIn("PYTHONUNBUFFERED=1", host)
