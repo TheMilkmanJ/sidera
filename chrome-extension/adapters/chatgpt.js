@@ -20,6 +20,7 @@ const ChatGPTAdapter = {
       'article[data-turn="assistant"]',
       '[data-testid^="conversation-turn-"][data-turn="assistant"]',
       '[data-testid^="conversation-turn-"]:has([data-message-author-role="assistant"])',
+      'ol[aria-label="Conversation"] > li',
     ],
     messageContent: [
       ".markdown.prose",
@@ -56,10 +57,22 @@ const ChatGPTAdapter = {
     return stopBtn !== null && !stopBtn.disabled;
   },
   getLatestAssistantMessage() {
-    const lastTurn = SideraDom.queryLast(this.selectors.assistantMessage);
+    const turns = [...document.querySelectorAll('ol[aria-label="Conversation"] > li')];
+    const labeled = turns.filter((el) => {
+      const heading = el.querySelector("h4, h3, h2");
+      return heading && /^chatgpt said\b/i.test((heading.innerText || "").trim());
+    });
+    const lastTurn = labeled[labeled.length - 1] || SideraDom.queryLast(this.selectors.assistantMessage.slice(0, 4));
     if (!lastTurn) return null;
-    const textSource = this._contentWithin(lastTurn) || lastTurn;
-    return { element: lastTurn, text: (textSource.innerText || "").trim() };
+    const heading = lastTurn.querySelector("h4, h3, h2");
+    let text = (lastTurn.innerText || "").trim();
+    if (heading && /^chatgpt said\b/i.test((heading.innerText || "").trim())) {
+      text = text.replace(/^chatgpt said:\s*/i, "").trim();
+    } else {
+      const textSource = this._contentWithin(lastTurn) || lastTurn;
+      text = (textSource.innerText || "").trim();
+    }
+    return { element: lastTurn, text: text };
   },
   _contentWithin(root) {
     for (const sel of this.selectors.messageContent) {
