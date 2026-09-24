@@ -10,7 +10,8 @@
  *   with data-testid="chat-submit".
  * - Assistant bubbles use data-testid="assistant-message". User bubbles
  *   use data-testid="user-message" and are not captured.
- * - Stop is an aria-label containing "Stop" and is absent until a reply streams.
+ * - While a reply streams, the submit control becomes button[aria-label="Stop model response"].
+ *   The finished reply is [data-testid="assistant-message"] inside [id^="response-"].
  */
 const GrokAdapter = {
   name: "Grok",
