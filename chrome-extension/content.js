@@ -40,6 +40,8 @@
     saveLastInjected(pending);
     retryIssuedAt = Date.now();
     generatingSince = 0;
+    generatingLength = -1;
+    saveGenerationWatch();
     console.warn(`[Sidera ${hemisphere}] ${reason}; stopping and resending ${pending.messageId} once.`);
     const site = adapter();
     if (site && site.isGenerating() && typeof site.stopGenerating === "function") site.stopGenerating();
@@ -174,10 +176,31 @@
     console.log(`[Sidera ${hemisphere}] DOM observer initialized (${DEBOUNCE_MS}ms quiescence).`);
   }
 
+  // The hang timer lives on the document so a re-paired copy of this script
+  // continues counting instead of restarting from zero.
+  function loadGenerationWatch() {
+    const ds = document.documentElement.dataset;
+    generatingSince = Number(ds.sideraGenSince || 0);
+    generatingLength = ds.sideraGenLength === undefined ? -1 : Number(ds.sideraGenLength);
+  }
+
+  function saveGenerationWatch() {
+    const ds = document.documentElement.dataset;
+    if (!generatingSince) {
+      delete ds.sideraGenSince;
+      delete ds.sideraGenLength;
+      return;
+    }
+    ds.sideraGenSince = String(generatingSince);
+    ds.sideraGenLength = String(generatingLength);
+  }
+
   function watchStuckGeneration(site) {
+    loadGenerationWatch();
     if (!site.isGenerating()) {
       generatingSince = 0;
       generatingLength = -1;
+      saveGenerationWatch();
       return;
     }
     const latest = site.getLatestAssistantMessage();
@@ -186,6 +209,7 @@
     if (!generatingSince || length !== generatingLength) {
       generatingSince = now;
       generatingLength = length;
+      saveGenerationWatch();
       return;
     }
     if (now - generatingSince < STUCK_MS) return;
@@ -193,6 +217,7 @@
     if (!retryLastInjection(`Reply hung for ${Math.round(STUCK_MS / 60000)} minutes with no new text`)) {
       generatingSince = now;
     }
+    saveGenerationWatch();
   }
 
   function injectAndSubmit(text, messageId, options) {

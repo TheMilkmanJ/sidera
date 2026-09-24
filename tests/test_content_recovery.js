@@ -169,6 +169,26 @@ function makeContext() {
   assert.strictEqual(t.site.submits, 1);
 }
 
+// A re-paired copy inherits the hang timer instead of restarting it.
+{
+  const t = makeContext();
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "LEFT" }, {}, () => {});
+  const ds = t.ctx.document.documentElement.dataset;
+  ds.sideraInjected = JSON.stringify({ text: "pasted earlier", messageId: "SIDERA-0000006", retried: false });
+  ds.sideraGenSince = String(1_000_000 - 5 * 60 * 1000);
+  ds.sideraGenLength = "0";
+  t.site.generating = true;
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.site.stops, 0);
+  t.advance(90 * 1000);
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.site.stops, 1, "timer continued from the previous copy");
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.composer, "pasted earlier");
+  assert.strictEqual(ds.sideraGenSince, undefined, "timer cleared after retry");
+}
+
 // A newer paired copy retires the older one.
 {
   const t = makeContext();
