@@ -18,8 +18,20 @@
     document.documentElement.dataset.sideraSawStop = "1";
   }
 
+  function currentAnswer() {
+    const site = adapter();
+    const latest = site && site.getLatestAssistantMessage();
+    const raw = latest && latest.text ? latest.text : "";
+    return SideraCompletion.finishedAnswer(raw) || raw;
+  }
+
   function restoreTurn() {
-    lastCompletedText = document.documentElement.dataset.sideraLastText || "";
+    if (document.documentElement.dataset.sideraLastText) {
+      lastCompletedText = document.documentElement.dataset.sideraLastText;
+    } else {
+      lastCompletedText = currentAnswer();
+      if (lastCompletedText) document.documentElement.dataset.sideraLastText = lastCompletedText;
+    }
     sawStop = document.documentElement.dataset.sideraSawStop === "1";
   }
 

@@ -198,8 +198,8 @@ for (const packet of [...(await bridges.LEFT.drain()), ...(await bridges.RIGHT.d
 await new Promise((resolve) => setTimeout(resolve, 500));
 
 const seen = {
-  chatgpt: await chatgpt.evaluate(() => (document.body.innerText || "").replace(/\s+/g, " ").slice(0, 1200)),
-  grok: await grok.evaluate(() => (document.body.innerText || "").replace(/\s+/g, " ").slice(0, 1200)),
+  chatgpt: await chatgpt.evaluate(() => (document.body.innerText || "").replace(/\s+/g, " ")),
+  grok: await grok.evaluate(() => (document.body.innerText || "").replace(/\s+/g, " ")),
 };
 host.stdin.end();
 await new Promise((resolve) => host.once("exit", resolve));
