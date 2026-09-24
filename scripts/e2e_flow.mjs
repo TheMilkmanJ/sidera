@@ -12,8 +12,8 @@ const require = createRequire(process.env.PUPPETEER_REQUIRE || import.meta.url);
 const puppeteer = require("puppeteer-core");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const flowRoot = `/tmp/sidera-flow-${Date.now()}`;
-const PROMPT = "Reply with exactly the single word pastebridge and nothing else. Do not search or use tools.";
-const TOKEN = "pastebridge";
+const PROMPT = "Reply with exactly the single word bridgecopy and nothing else. Do not search or use tools.";
+const TOKEN = "bridgecopy";
 
 function frame(message) {
   const body = Buffer.from(JSON.stringify(message));
@@ -137,6 +137,10 @@ const pages = await browser.pages();
 const chatgpt = pages.find((page) => page.url().includes("chatgpt.com"));
 const grok = pages.find((page) => page.url().includes("grok.com"));
 if (!chatgpt || !grok) throw new Error("ChatGPT or Grok tab is not open");
+
+await chatgpt.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
+await grok.goto("https://grok.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
+await new Promise((resolve) => setTimeout(resolve, 2500));
 
 send({ type: "START", initial_hemisphere: "LEFT" });
 const left = await bootPage(chatgpt, "sidera-left-" + Date.now());
