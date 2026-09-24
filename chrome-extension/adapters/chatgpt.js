@@ -58,11 +58,17 @@ const ChatGPTAdapter = {
   },
   getLatestAssistantMessage() {
     const turns = [...document.querySelectorAll('ol[aria-label="Conversation"] > li')];
-    const labeled = turns.filter((el) => {
-      const heading = el.querySelector("h4, h3, h2");
-      return heading && /^chatgpt said\b/i.test((heading.innerText || "").trim());
-    });
-    const lastTurn = labeled[labeled.length - 1] || SideraDom.queryLast(this.selectors.assistantMessage.slice(0, 4));
+    // Scan from the newest turn backwards; reading every heading's innerText
+    // forces layout per turn and stalls long conversations.
+    let lastLabeled = null;
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const heading = turns[i].querySelector("h4, h3, h2");
+      if (heading && /^chatgpt said\b/i.test((heading.textContent || "").trim())) {
+        lastLabeled = turns[i];
+        break;
+      }
+    }
+    const lastTurn = lastLabeled || SideraDom.queryLast(this.selectors.assistantMessage.slice(0, 4));
     if (!lastTurn) return null;
     const heading = lastTurn.querySelector("h4, h3, h2");
     let text = (lastTurn.innerText || "").trim();

@@ -56,8 +56,13 @@ const GeminiAdapter = {
       }
       if (nodes.length) break;
     }
-    const filled = nodes.map((el) => ({ element: el, text: this._textOf(el) })).filter((item) => item.text);
-    return filled.length ? filled[filled.length - 1] : null;
+    // Walk from the newest message backwards; reading innerText forces layout,
+    // so touching every message in a long chat would freeze the page.
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const text = this._textOf(nodes[i]);
+      if (text) return { element: nodes[i], text: text };
+    }
+    return null;
   },
   _read(node) {
     const visible = (node.innerText || "").trim();

@@ -9,6 +9,23 @@
   let sawStop = false;
   const DEBOUNCE_MS = 2500;
   const HEARTBEAT_MS = 1000;
+  // Only one copy of this script should watch a page. If another copy is
+  // paired later (extension reload, re-pairing), the older copy steps aside.
+  const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  function isCurrentInstance() {
+    return document.documentElement.dataset.sideraInstance === instanceId;
+  }
+
+  function retire() {
+    isPaired = false;
+    if (observer) observer.disconnect();
+    observer = null;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    debounceTimer = null;
+    heartbeatTimer = null;
+  }
 
   function adapter() {
     if (globalThis.ChatGPTAdapter && ChatGPTAdapter.identifyTab()) return ChatGPTAdapter;
@@ -41,6 +58,10 @@
 
   function checkCompletion() {
     if (!isPaired) return;
+    if (!isCurrentInstance()) {
+      retire();
+      return;
+    }
     const site = adapter();
     if (!site) return;
     if (site.isGenerating()) {
@@ -86,6 +107,10 @@
     if (observer) observer.disconnect();
     observer = new MutationObserver((records) => {
       if (!isPaired) return;
+      if (!isCurrentInstance()) {
+        retire();
+        return;
+      }
       const site = adapter();
       if (site && site.isGenerating()) rememberStop();
       if (records.every(isDecorativeMutation)) return;
@@ -96,6 +121,10 @@
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = setInterval(() => {
       if (!isPaired) return;
+      if (!isCurrentInstance()) {
+        retire();
+        return;
+      }
       if (Date.now() - lastMeaningfulMutation >= DEBOUNCE_MS) checkCompletion();
     }, HEARTBEAT_MS);
     console.log(`[Sidera ${hemisphere}] DOM observer initialized (${DEBOUNCE_MS}ms quiescence).`);
@@ -158,6 +187,7 @@
     if (msg.type === "ASSIGN_HEMISPHERE") {
       hemisphere = msg.hemisphere;
       isPaired = true;
+      document.documentElement.dataset.sideraInstance = instanceId;
       if (msg.baseline === false) {
         lastCompletedText = "";
         sawStop = false;
