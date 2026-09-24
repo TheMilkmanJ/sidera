@@ -203,6 +203,10 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
     }
   }
   if (error) break;
+  if (submits.length !== lastLogged) {
+    lastLogged = submits.length;
+    console.error(`forwarded ${submits.length}/${TURN_GOAL} ${submits.at(-1).destination} ${submits.at(-1).message_id}`);
+  }
   await new Promise((resolve) => setTimeout(resolve, 300));
 }
 
@@ -224,7 +228,7 @@ const report = {
   submits: submits.map((message) => ({
     destination: message.destination,
     message_id: message.message_id,
-    text: message.text.slice(0, 240),
+    text: message.text.slice(0, 800),
   })),
   chatgptHasToken: seen.chatgpt.toLowerCase().includes(TOKEN),
   grokHasToken: seen.grok.toLowerCase().includes(TOKEN),
