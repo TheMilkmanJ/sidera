@@ -4,7 +4,7 @@
  * Those lines are not the reply the other hemisphere should receive.
  */
 (function (root) {
-  const STATUS_LINE = /^(?:working|thinking|searching(?:\.{3})?|searched)\b|^(?:worked for \d)|^(?:ran \d+ searches?)|^(?:\d+ sources?)$|^(?:search(?:ing)? the web\b)/i;
+  const STATUS_LINE = /^(?:working|thinking|searching(?:\.{3})?|searched)\b|^(?:worked for \d)|^(?:ran \d+ searches?)|^(?:\d+ sources?)$|^(?:search(?:ing)? the web\b)|^(?:opened page)$|^https?:\/\/\S+$|^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?$/i;
 
   function statusLines(text) {
     return String(text || "")
@@ -15,6 +15,7 @@
 
   function isInterimStatus(text) {
     const lines = statusLines(text);
+    if (lines.some((line) => /^(?:working|thinking)\b/i.test(line))) return true;
     return lines.length === 0 || lines.every((line) => STATUS_LINE.test(line));
   }
 

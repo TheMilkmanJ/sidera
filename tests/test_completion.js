@@ -12,6 +12,11 @@ assert.equal(isInterimStatus("Worked for 3s\nRan 4 searches\nThinking\nWorked fo
 assert.equal(isInterimStatus("Working"), true);
 assert.equal(isInterimStatus("Working for 1s"), true);
 assert.equal(isInterimStatus(""), true);
+assert.equal(
+  isInterimStatus("Opened page\nen.wikipedia.org/wiki/Pineapple\nThinking"),
+  true,
+);
+assert.equal(isInterimStatus("Opened page\nen.wikipedia.org/wiki/Pineapple"), true);
 assert.equal(isInterimStatus("sideraflow"), false);
 assert.equal(
   finishedAnswer("Worked for 8s\nRan 4 searches\nsideraflow\n25 sources"),

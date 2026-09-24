@@ -12,8 +12,8 @@ const require = createRequire(process.env.PUPPETEER_REQUIRE || import.meta.url);
 const puppeteer = require("puppeteer-core");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const flowRoot = `/tmp/sidera-flow-${Date.now()}`;
-const PROMPT = "Reply with only the word pineapple.";
-const TOKEN = "pineapple";
+const PROMPT = "Reply with only this sentence: The copy loop works.";
+const TOKEN = "the copy loop works";
 
 function frame(message) {
   const body = Buffer.from(JSON.stringify(message));
@@ -180,8 +180,8 @@ while (Date.now() < deadline && submits.length < 2) {
     await bridges.RIGHT.note();
     packets = [...(await bridges.LEFT.drain()), ...(await bridges.RIGHT.drain())];
   } catch (err) {
-    await rebind("LEFT", chatgpt);
-    await rebind("RIGHT", grok);
+    await rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT"));
+    await rebind("RIGHT", grok, !submits.some((message) => message.destination === "RIGHT"));
   }
   for (const packet of packets) {
     send(packet);
@@ -191,7 +191,10 @@ while (Date.now() < deadline && submits.length < 2) {
     if (message.type === "SUBMIT_MESSAGE") {
       submits.push(message);
       const target = bridges[message.destination] || bridges.LEFT;
-      await target.inject(message.text, message.message_id);
+      await Promise.race([
+        target.inject(message.text, message.message_id),
+        new Promise((resolve) => setTimeout(resolve, 5000)),
+      ]);
     }
     if (message.type === "STATE_UPDATE" && message.state === "ERROR") {
       error = message.last_error || "mediator error";
@@ -227,7 +230,9 @@ const report = {
   grokReplyReachedChatGPT: submits[1]
     ? seen.chatgpt.includes(submits[1].text.replace(/\s+/g, " ").trim().slice(0, 40))
     : false,
-  grokReplyIsFinished: submits[1] ? !/^(worked for|working|thinking|ran \d+ searches)/i.test(submits[1].text.trim()) : false,
+  grokReplyIsFinished: submits[1]
+    ? !/^(worked for|working|thinking|ran \d+ searches|opened page)/i.test(submits[1].text.trim())
+    : false,
   error,
 };
 console.log(JSON.stringify(report, null, 2));
