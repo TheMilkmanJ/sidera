@@ -139,9 +139,12 @@ function send(message) {
 }
 
 const browser = await puppeteer.connect({ browserURL: "http://127.0.0.1:9333", defaultViewport: null });
+// SIDERA_TABS=new opens dedicated tabs (and closes them at the end) so a check
+// can run alongside another session in the same Chrome.
+const ownTabs = (process.env.SIDERA_TABS || "").toLowerCase() === "new";
 const pages = await browser.pages();
-const chatgpt = pages.find((page) => page.url().includes("chatgpt.com"));
-const gemini = pages.find((page) => page.url().includes("gemini.google.com"));
+const chatgpt = ownTabs ? await browser.newPage() : pages.find((page) => page.url().includes("chatgpt.com"));
+const gemini = ownTabs ? await browser.newPage() : pages.find((page) => page.url().includes("gemini.google.com"));
 if (!chatgpt || !gemini) throw new Error("ChatGPT or Gemini tab is not open");
 
 await chatgpt.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
@@ -330,10 +333,15 @@ const seen = {
 };
 host.stdin.end();
 await new Promise((resolve) => host.once("exit", resolve));
+if (ownTabs) {
+  await chatgpt.close().catch(() => {});
+  await gemini.close().catch(() => {});
+}
 await browser.disconnect();
 
 const report = {
   flowRoot,
+  genesisDelivered,
   sent,
   submits: submits.map((message) => ({
     destination: message.destination,
