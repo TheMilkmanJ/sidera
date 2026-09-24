@@ -9,6 +9,12 @@
   let sawStop = false;
   const DEBOUNCE_MS = 2500;
   const HEARTBEAT_MS = 1000;
+  // A reply that has shown no new text for this long while the site still
+  // claims to be generating is treated as hung: stop it and resend once.
+  const STUCK_MS = 6 * 60 * 1000;
+  let lastInjected = null;
+  let generatingSince = 0;
+  let generatingLength = -1;
   // Only one copy of this script should watch a page. If another copy is
   // paired later (extension reload, re-pairing), the older copy steps aside.
   const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -103,6 +109,17 @@
     debounceTimer = setTimeout(checkCompletion, DEBOUNCE_MS);
   }
 
+  function heartbeat() {
+    if (!isPaired) return;
+    if (!isCurrentInstance()) {
+      retire();
+      return;
+    }
+    const site = adapter();
+    if (site) watchStuckGeneration(site);
+    if (Date.now() - lastMeaningfulMutation >= DEBOUNCE_MS) checkCompletion();
+  }
+
   function startObserver() {
     if (observer) observer.disconnect();
     observer = new MutationObserver((records) => {
@@ -119,18 +136,37 @@
     observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
     armDebounce();
     if (heartbeatTimer) clearInterval(heartbeatTimer);
-    heartbeatTimer = setInterval(() => {
-      if (!isPaired) return;
-      if (!isCurrentInstance()) {
-        retire();
-        return;
-      }
-      if (Date.now() - lastMeaningfulMutation >= DEBOUNCE_MS) checkCompletion();
-    }, HEARTBEAT_MS);
+    heartbeatTimer = setInterval(heartbeat, HEARTBEAT_MS);
     console.log(`[Sidera ${hemisphere}] DOM observer initialized (${DEBOUNCE_MS}ms quiescence).`);
   }
 
-  function injectAndSubmit(text, messageId) {
+  function watchStuckGeneration(site) {
+    if (!site.isGenerating()) {
+      generatingSince = 0;
+      generatingLength = -1;
+      return;
+    }
+    const latest = site.getLatestAssistantMessage();
+    const length = latest && latest.text ? latest.text.length : 0;
+    const now = Date.now();
+    if (!generatingSince || length !== generatingLength) {
+      generatingSince = now;
+      generatingLength = length;
+      return;
+    }
+    if (now - generatingSince < STUCK_MS) return;
+    if (!lastInjected || lastInjected.retried || typeof site.stopGenerating !== "function") return;
+    lastInjected.retried = true;
+    generatingSince = 0;
+    console.warn(`[Sidera ${hemisphere}] Reply hung for ${Math.round(STUCK_MS / 60000)} minutes with no new text; stopping and resending ${lastInjected.messageId}.`);
+    site.stopGenerating();
+    const pending = lastInjected;
+    setTimeout(() => injectAndSubmit(pending.text, pending.messageId, { silent: true }), 3000);
+  }
+
+  function injectAndSubmit(text, messageId, options) {
+    const silent = !!(options && options.silent);
+    if (!silent) lastInjected = { text: text, messageId: messageId, retried: false };
     const site = adapter();
     if (!site) {
       chrome.runtime.sendMessage({
@@ -144,6 +180,7 @@
     try {
       site.setComposerText(text);
     } catch (err) {
+      if (silent) return;
       chrome.runtime.sendMessage({
         type: "INJECTION_ERROR",
         hemisphere: hemisphere,
@@ -155,6 +192,7 @@
 
     setTimeout(() => {
       const submitted = site.submitComposer();
+      if (silent) return;
       if (!submitted) {
         chrome.runtime.sendMessage({
           type: "INJECTION_ERROR",
@@ -182,6 +220,7 @@
 
   globalThis.__sideraCheck = checkCompletion;
   globalThis.__sideraNote = noteActivity;
+  globalThis.__sideraHeartbeat = heartbeat;
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "ASSIGN_HEMISPHERE") {

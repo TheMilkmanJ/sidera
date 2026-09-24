@@ -46,6 +46,12 @@ const GeminiAdapter = {
     const stopBtn = SideraDom.queryFirst(this.selectors.stopButton, { visible: true });
     return stopBtn !== null && !stopBtn.disabled;
   },
+  stopGenerating() {
+    const stopBtn = SideraDom.queryFirst(this.selectors.stopButton, { visible: true });
+    if (!stopBtn || stopBtn.disabled) return false;
+    SideraDom.clickControl(stopBtn);
+    return true;
+  },
   getLatestAssistantMessage() {
     let nodes = [];
     for (const sel of this.selectors.assistantMessage) {
