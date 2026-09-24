@@ -216,6 +216,19 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
         target.inject(message.text, message.message_id),
         new Promise((resolve) => setTimeout(resolve, 5000)),
       ]);
+      if (message.destination === "RIGHT") {
+        await gemini.bringToFront();
+        const box = await gemini.evaluate(() => {
+          const el = document.querySelector(".ql-editor[aria-label='Enter a prompt for Gemini']");
+          if (!el || !(el.innerText || "").trim()) return null;
+          const rect = el.getBoundingClientRect();
+          return { x: rect.x + 24, y: rect.y + 12 };
+        });
+        if (box) {
+          await gemini.mouse.click(box.x, box.y);
+          await gemini.keyboard.press("Enter");
+        }
+      }
     }
     if (message.type === "STATE_UPDATE" && message.state === "ERROR") {
       error = message.last_error || "mediator error";
