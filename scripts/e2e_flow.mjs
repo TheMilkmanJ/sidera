@@ -12,8 +12,8 @@ const require = createRequire(process.env.PUPPETEER_REQUIRE || import.meta.url);
 const puppeteer = require("puppeteer-core");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const flowRoot = `/tmp/sidera-flow-${Date.now()}`;
-const PROMPT = "Reply with exactly the single word bridgecopy and nothing else. Do not search or use tools.";
-const TOKEN = "bridgecopy";
+const PROMPT = "Reply with only the word pineapple.";
+const TOKEN = "pineapple";
 
 function frame(message) {
   const body = Buffer.from(JSON.stringify(message));

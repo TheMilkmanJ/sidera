@@ -4,7 +4,7 @@
  * Those lines are not the reply the other hemisphere should receive.
  */
 (function (root) {
-  const STATUS_LINE = /^(?:working|thinking|searching(?:\.{3})?|searched)$|^(?:worked for \d)|^(?:ran \d+ searches?)|^(?:\d+ sources?)$|^(?:search(?:ing)? the web\b)/i;
+  const STATUS_LINE = /^(?:working|thinking|searching(?:\.{3})?|searched)\b|^(?:worked for \d)|^(?:ran \d+ searches?)|^(?:\d+ sources?)$|^(?:search(?:ing)? the web\b)/i;
 
   function statusLines(text) {
     return String(text || "")

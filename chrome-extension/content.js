@@ -43,7 +43,6 @@
       rememberStop();
       return;
     }
-    if (!sawStop) return;
 
     const latest = site.getLatestAssistantMessage();
     const raw = latest && latest.text ? latest.text : "";
