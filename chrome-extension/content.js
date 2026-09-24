@@ -33,20 +33,67 @@
     document.documentElement.dataset.sideraInjected = JSON.stringify(record);
   }
 
+  function resetFailureTimers() {
+    retryIssuedAt = Date.now();
+    generatingSince = 0;
+    generatingLength = -1;
+    saveGenerationWatch();
+  }
+
   function retryLastInjection(reason) {
     const pending = loadLastInjected();
     if (!pending || pending.retried) return false;
     pending.retried = true;
     saveLastInjected(pending);
-    retryIssuedAt = Date.now();
-    generatingSince = 0;
-    generatingLength = -1;
-    saveGenerationWatch();
+    resetFailureTimers();
     console.warn(`[Sidera ${hemisphere}] ${reason}; stopping and resending ${pending.messageId} once.`);
     const site = adapter();
     if (site && site.isGenerating() && typeof site.stopGenerating === "function") site.stopGenerating();
     setTimeout(() => injectAndSubmit(pending.text, pending.messageId, { silent: true }), 3000);
     return true;
+  }
+
+  // Very long single chats are where the sites start hanging and returning
+  // canned errors. A side moves to a fresh chat after this many pastes, and
+  // also when the same message has failed twice in the current chat.
+  const ROTATE_AFTER_PASTES = 50;
+  const NEW_CHAT_SETTLE_MS = 4000;
+
+  function pasteCount() {
+    return Number(document.documentElement.dataset.sideraPasteCount || 0);
+  }
+
+  function setPasteCount(value) {
+    document.documentElement.dataset.sideraPasteCount = String(value);
+  }
+
+  function openFreshChat(site, reason) {
+    if (typeof site.startNewChat !== "function" || !site.startNewChat()) return false;
+    console.warn(`[Sidera ${hemisphere}] ${reason}; starting a new ${site.name} chat.`);
+    setPasteCount(0);
+    lastCompletedText = "";
+    sawStop = false;
+    delete document.documentElement.dataset.sideraLastText;
+    delete document.documentElement.dataset.sideraSawStop;
+    resetFailureTimers();
+    return true;
+  }
+
+  function rotateAndResend(reason) {
+    const pending = loadLastInjected();
+    if (!pending || pending.rotated) return false;
+    const site = adapter();
+    if (!site || typeof site.startNewChat !== "function") return false;
+    if (site.isGenerating() && typeof site.stopGenerating === "function") site.stopGenerating();
+    if (!openFreshChat(site, reason)) return false;
+    pending.rotated = true;
+    saveLastInjected(pending);
+    setTimeout(() => injectAndSubmit(pending.text, pending.messageId, { silent: true }), NEW_CHAT_SETTLE_MS);
+    return true;
+  }
+
+  function recoverFailedReply(reason) {
+    return retryLastInjection(reason) || rotateAndResend(`${reason} again`);
   }
   // Only one copy of this script should watch a page. If another copy is
   // paired later (extension reload, re-pairing), the older copy steps aside.
@@ -116,7 +163,7 @@
     if (SideraCompletion.isInterimStatus(raw)) return;
     const text = SideraCompletion.finishedAnswer(raw);
     if (!text || text === lastCompletedText) return;
-    if (SideraCompletion.isErrorReply(text) && retryLastInjection("Site returned an error instead of a reply")) return;
+    if (SideraCompletion.isErrorReply(text) && recoverFailedReply("Site returned an error instead of a reply")) return;
 
     lastCompletedText = text;
     sawStop = false;
@@ -214,15 +261,18 @@
     }
     if (now - generatingSince < STUCK_MS) return;
     if (typeof site.stopGenerating !== "function") return;
-    if (!retryLastInjection(`Reply hung for ${Math.round(STUCK_MS / 60000)} minutes with no new text`)) {
+    if (!recoverFailedReply(`Reply hung for ${Math.round(STUCK_MS / 60000)} minutes with no new text`)) {
       generatingSince = now;
+      saveGenerationWatch();
     }
-    saveGenerationWatch();
   }
 
   function injectAndSubmit(text, messageId, options) {
     const silent = !!(options && options.silent);
-    if (!silent) saveLastInjected({ text: text, messageId: messageId, retried: false });
+    // A retry stays quiet; a first send that was moved to a fresh chat still
+    // has to report its outcome to the mediator.
+    const quiet = silent && !(options && options.confirm);
+    if (!silent) saveLastInjected({ text: text, messageId: messageId, retried: false, rotated: false });
     const site = adapter();
     if (!site) {
       chrome.runtime.sendMessage({
@@ -233,10 +283,19 @@
       });
       return;
     }
+    if (!silent) {
+      const count = pasteCount() + 1;
+      if (count > ROTATE_AFTER_PASTES && openFreshChat(site, `${count - 1} messages pasted into this chat`)) {
+        setPasteCount(1);
+        setTimeout(() => injectAndSubmit(text, messageId, { silent: true, confirm: true }), NEW_CHAT_SETTLE_MS);
+        return;
+      }
+      setPasteCount(count);
+    }
     try {
       site.setComposerText(text);
     } catch (err) {
-      if (silent) return;
+      if (quiet) return;
       chrome.runtime.sendMessage({
         type: "INJECTION_ERROR",
         hemisphere: hemisphere,
@@ -248,7 +307,7 @@
 
     setTimeout(() => {
       const submitted = site.submitComposer();
-      if (silent) return;
+      if (quiet) return;
       if (!submitted) {
         chrome.runtime.sendMessage({
           type: "INJECTION_ERROR",

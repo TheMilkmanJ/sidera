@@ -19,6 +19,25 @@ function persistSession() {
   }).catch(() => {});
 }
 
+// A paired tab that does a full page load (a site's "New chat" or a reload)
+// gets a fresh content script, so hand it its hemisphere again.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== "complete") return;
+  for (const slotId of Object.keys(slotRegistry)) {
+    const slot = slotRegistry[slotId];
+    if (!slot || slot.tabId !== tabId) continue;
+    chrome.tabs.sendMessage(tabId, {
+      type: "ASSIGN_HEMISPHERE",
+      hemisphere: slotId,
+      adapterType: slot.adapter,
+    }, () => {
+      if (chrome.runtime.lastError) {
+        console.warn(`Re-pairing ${slotId} after navigation failed:`, chrome.runtime.lastError.message);
+      }
+    });
+  }
+});
+
 function connectNative() {
   if (nativePort) return;
   console.log(`Connecting to Native Messaging host: ${NATIVE_HOST_NAME}`);

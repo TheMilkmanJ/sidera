@@ -15,6 +15,11 @@
 const ChatGPTAdapter = {
   name: "ChatGPT",
   selectors: {
+    newChatControl: [
+      'a[data-testid="create-new-chat-button"]',
+      'a[aria-label="New chat"]',
+      'button[aria-label="New chat"]',
+    ],
     assistantMessage: [
       '[data-message-author-role="assistant"]',
       'article[data-turn="assistant"]',
@@ -55,6 +60,12 @@ const ChatGPTAdapter = {
   isGenerating() {
     const stopBtn = SideraDom.queryFirst(this.selectors.stopButton, { visible: true });
     return stopBtn !== null && !stopBtn.disabled;
+  },
+  startNewChat() {
+    const control = SideraDom.queryFirst(this.selectors.newChatControl, { visible: true });
+    if (!control) return false;
+    SideraDom.clickControl(control);
+    return true;
   },
   stopGenerating() {
     const stopBtn = SideraDom.queryFirst(this.selectors.stopButton, { visible: true });

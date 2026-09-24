@@ -16,6 +16,11 @@
 const GrokAdapter = {
   name: "Grok",
   selectors: {
+    newChatControl: [
+      'a[aria-label="New chat"]',
+      'button[aria-label="New chat"]',
+      'a[href="/"][aria-label*="New"]',
+    ],
     assistantMessage: [
       '[data-testid="assistant-message"]',
       '[data-testid="grok-response"]',
@@ -68,6 +73,12 @@ const GrokAdapter = {
   isGenerating() {
     const stopBtn = SideraDom.queryFirst(this.selectors.stopButton, { visible: true });
     return stopBtn !== null && !stopBtn.disabled;
+  },
+  startNewChat() {
+    const control = SideraDom.queryFirst(this.selectors.newChatControl, { visible: true });
+    if (!control) return false;
+    SideraDom.clickControl(control);
+    return true;
   },
   stopGenerating() {
     const stopBtn = SideraDom.queryFirst(this.selectors.stopButton, { visible: true });

@@ -189,6 +189,64 @@ function makeContext() {
   assert.strictEqual(ds.sideraGenSince, undefined, "timer cleared after retry");
 }
 
+// Second failure of the same message: move to a fresh chat and paste there.
+{
+  const t = makeContext();
+  t.site.newChats = 0;
+  t.site.startNewChat = function () { this.newChats += 1; this.latest = ""; return true; };
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT" }, {}, () => {});
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "keep going?", message_id: "SIDERA-0000007" }, {}, () => {});
+  t.flushTimers();
+  t.site.latest = "I encountered an error doing what you asked. Could you try again?";
+  t.advance(3000);
+  t.ctx.__sideraHeartbeat();
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.submits, 2, "first failure: plain resend");
+  assert.strictEqual(t.site.newChats, 0);
+
+  t.advance(20000);
+  t.site.latest = "I encountered an error doing what you asked. Could you try again?";
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.site.newChats, 1, "second failure: new chat");
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 0, "error still not forwarded");
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.submits, 3, "message pasted into the new chat");
+  assert.strictEqual(t.site.composer, "keep going?");
+
+  t.advance(20000);
+  t.site.latest = "A fresh answer in the new chat. Shall we continue?";
+  t.ctx.__sideraHeartbeat();
+  const captured = t.sent.filter((m) => m.type === "RESPONSE_CAPTURED");
+  assert.strictEqual(captured.length, 1);
+  assert.strictEqual(captured[0].content, t.site.latest);
+
+  // A third failure of the same message is forwarded rather than looping.
+  t.advance(20000);
+  t.site.latest = "Something went wrong. Please try again.";
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.site.newChats, 1);
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 2);
+}
+
+// Proactive rotation after ROTATE_AFTER_PASTES pastes, with confirmation still sent.
+{
+  const t = makeContext();
+  t.site.newChats = 0;
+  t.site.startNewChat = function () { this.newChats += 1; return true; };
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "LEFT" }, {}, () => {});
+  t.ctx.document.documentElement.dataset.sideraPasteCount = "50";
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "the 51st message", message_id: "SIDERA-0000101" }, {}, () => {});
+  assert.strictEqual(t.site.newChats, 1, "51st paste opens a new chat first");
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.composer, "the 51st message");
+  assert.strictEqual(t.site.submits, 1);
+  assert.strictEqual(t.sent.filter((m) => m.type === "SUBMISSION_CONFIRMED" && m.message_id === "SIDERA-0000101").length, 1);
+  assert.strictEqual(t.ctx.document.documentElement.dataset.sideraPasteCount, "1");
+}
+
 // A newer paired copy retires the older one.
 {
   const t = makeContext();
