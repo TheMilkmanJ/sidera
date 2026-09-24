@@ -30,6 +30,7 @@ const GrokAdapter = {
       'div[dir="auto"]',
     ],
     stopButton: [
+      'button[aria-label="Stop model response"]',
       'button[aria-label="Stop"]',
       'button[aria-label="Stop response"]',
       'button[aria-label="Stop generating"]',
