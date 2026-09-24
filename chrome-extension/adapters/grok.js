@@ -3,13 +3,14 @@
  * Selectors are tried in priority order so a hidden duplicate control
  * (common on grok.com) is skipped in favor of the visible one.
  *
- * Verified against the live grok.com structure (2026):
- * - Composer is a TipTap/ProseMirror contenteditable (.tiptap.ProseMirror).
- *   Older builds still expose textarea[aria-label="Ask Grok anything"].
- * - Assistant bubbles use data-testid="assistant-message" (user bubbles are
- *   data-testid="user-message" and must not be captured).
- * - Send control is button[aria-label="Submit"] and only enables once the
- *   composer has text. Stop is an aria-label containing "Stop".
+ * Measured on live grok.com:
+ * - The visible composer is textarea[aria-label="Ask Grok anything"].
+ *   TipTap (.tiptap.ProseMirror) remains a fallback for older builds.
+ * - The visible submit control is button[aria-label="Submit"]
+ *   with data-testid="chat-submit".
+ * - Assistant bubbles use data-testid="assistant-message". User bubbles
+ *   use data-testid="user-message" and are not captured.
+ * - Stop is an aria-label containing "Stop" and is absent until a reply streams.
  */
 const GrokAdapter = {
   name: "Grok",
@@ -37,6 +38,7 @@ const GrokAdapter = {
     ],
     sendButton: [
       'button[aria-label="Submit"]',
+      'button[data-testid="chat-submit"]',
       'button[aria-label="Send message"]',
       'button[aria-label="Grok something"]',
       'button[aria-label*="Send"]',
