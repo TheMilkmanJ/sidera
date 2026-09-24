@@ -5,7 +5,9 @@
  * and a bare conversation-turn match includes user messages.
  *
  * Verified against the live chatgpt.com structure (2026):
- * - Composer is #prompt-textarea, a ProseMirror contenteditable (legacy textarea still exists).
+ * - Conversation composer is #prompt-textarea (ProseMirror). The logged-in home
+ *   composer measured in Chrome is textarea#mobile-composer-prompt
+ *   (aria-label "Chat with ChatGPT").
  * - Assistant turns carry data-message-author-role="assistant" and/or data-turn="assistant".
  * - Streaming replaces the send button with button[data-testid="stop-button"]
  *   (aria-label "Stop generating", "Stop streaming", or "Stop response").
@@ -42,6 +44,8 @@ const ChatGPTAdapter = {
       "#prompt-textarea",
       'textarea[name="prompt-textarea"]',
       '[data-testid="prompt-textarea"]',
+      "textarea#mobile-composer-prompt",
+      'textarea[aria-label="Chat with ChatGPT"]',
     ],
   },
   identifyTab() {
