@@ -1,10 +1,22 @@
 # Sidera installer for Windows 10/11.
 # Detects an existing Python 3.10+ and does not reinstall it.
-# Registers the Chrome native messaging host and a windowless desktop shortcut.
+# Registers the Chrome native messaging host and offers a windowless desktop shortcut.
+
+param(
+    [ValidateSet("Ask", "Yes", "No")]
+    [string]$DesktopIcon = "Ask"
+)
 
 $ErrorActionPreference = "Stop"
 $InstallRoot = "C:\Sidera"
 $SourceRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+function Read-YesNo([string]$Question, [bool]$Default = $true) {
+    $suffix = if ($Default) { "[Y/n]" } else { "[y/N]" }
+    $answer = Read-Host "$Question $suffix"
+    if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
+    return $answer.Trim().ToLowerInvariant().StartsWith("y")
+}
 
 function Find-SideraPython {
     $checks = @(
@@ -65,21 +77,40 @@ New-Item -Path $registryPath -Force | Out-Null
 New-ItemProperty -Path $registryPath -Name "(default)" -Value $hostManifestPath -PropertyType String -Force | Out-Null
 Write-Host "Native messaging host registered: $hostManifestPath"
 
-$desktop = [Environment]::GetFolderPath("Desktop")
-$shortcutPath = Join-Path $desktop "Sidera Mediator.lnk"
 $wscript = Join-Path $env:SystemRoot "System32\wscript.exe"
 $launcher = Join-Path $InstallRoot "launch_silent.vbs"
 $icon = Join-Path $InstallRoot "sidera.ico"
 $shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $wscript
-$shortcut.Arguments = "//B `"$launcher`""
-$shortcut.WorkingDirectory = $InstallRoot
-$shortcut.IconLocation = "$icon,0"
-$shortcut.WindowStyle = 7
-$shortcut.Description = "Sidera Dual-Hemisphere Mediator"
-$shortcut.Save()
-Write-Host "Desktop shortcut targets windowless launcher: $launcher"
 
-Write-Host "Load the unpacked extension from $InstallRoot\chrome-extension"
+function New-SideraShortcut([string]$Path) {
+    $shortcut = $shell.CreateShortcut($Path)
+    $shortcut.TargetPath = $wscript
+    $shortcut.Arguments = "//B `"$launcher`""
+    $shortcut.WorkingDirectory = $InstallRoot
+    $shortcut.IconLocation = "$icon,0"
+    $shortcut.WindowStyle = 7
+    $shortcut.Description = "Sidera Dual-Hemisphere Mediator"
+    $shortcut.Save()
+}
+
+$startMenu = Join-Path ([Environment]::GetFolderPath("Programs")) "Sidera Mediator.lnk"
+New-SideraShortcut $startMenu
+Write-Host "Start menu entry created: $startMenu"
+
+$wantDesktopIcon = switch ($DesktopIcon) {
+    "Yes" { $true }
+    "No" { $false }
+    default { Read-YesNo "Put a Sidera Mediator icon on the desktop?" $true }
+}
+if ($wantDesktopIcon) {
+    $desktop = [Environment]::GetFolderPath("Desktop")
+    $shortcutPath = Join-Path $desktop "Sidera Mediator.lnk"
+    New-SideraShortcut $shortcutPath
+    Write-Host "Desktop shortcut targets windowless launcher: $launcher"
+} else {
+    Write-Host "No desktop icon. Use the Start menu entry or run $launcher"
+}
+
+Write-Host ""
+Write-Host "Done. Double-click Sidera Mediator. Chrome opens ChatGPT and Gemini with the extension loaded."
 Write-Host "Extension ID pekgjaanmdkkpclhlobpcggibbkgjbgd"

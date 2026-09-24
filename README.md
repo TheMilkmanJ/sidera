@@ -14,15 +14,18 @@ Python 3.10 or newer is required.
 
 ## Install on Windows 10/11
 
-1. Double-click `INSTALL.bat`.
-2. If Python 3.10+ is already on PATH (`py -3`, `python`, or `python3`), the installer leaves it alone.
-3. Files are copied to `C:\Sidera`.
-4. `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.sidera.mediator` is set to `C:\Sidera\com.sidera.mediator.json`.
-5. A desktop shortcut named **Sidera Mediator** is created. It launches `wscript.exe //B` against `launch_silent.vbs` with `sidera.ico`, so no console window appears. Chrome opens ChatGPT and Gemini.
+Download the folder, double-click `INSTALL.bat`, answer one question about a desktop icon. That is the whole install.
 
-Then in Chrome, load `C:\Sidera\chrome-extension` as an unpacked extension. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
+What the installer does:
 
-Pair the ChatGPT tab as LEFT and the Gemini tab as RIGHT, then start the exchange.
+1. Finds Python 3.10+ if it is already there (`py -3`, `python`, or `python3`) and leaves it alone; otherwise installs Python silently.
+2. Copies the files to `C:\Sidera`.
+3. Points `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.sidera.mediator` at `C:\Sidera\com.sidera.mediator.json`.
+4. Adds **Sidera Mediator** to the Start menu, and to the desktop if you say yes (the default). Run `INSTALL.bat -DesktopIcon Yes` or `-DesktopIcon No` to skip the question.
+
+Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. Chrome opens ChatGPT and Gemini with the Sidera extension already loaded from `C:\Sidera\chrome-extension`; nothing needs to be loaded by hand. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
+
+In the extension popup: pair the ChatGPT tab as LEFT, the Gemini tab as RIGHT, and press Start.
 
 ## Burn-in records
 

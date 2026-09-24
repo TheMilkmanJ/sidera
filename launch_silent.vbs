@@ -1,9 +1,13 @@
 Option Explicit
 ' Windowless launcher. wscript.exe //B shows no console.
-' Chrome itself opens normally so the operator can pair LEFT and RIGHT.
-Dim shell, fso, chrome
+' Chrome opens ChatGPT and Gemini with the Sidera extension already loaded,
+' so the operator only pairs LEFT and RIGHT and presses Start.
+Dim shell, fso, chrome, installRoot, extensionDir
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
+
+installRoot = fso.GetParentFolderName(WScript.ScriptFullName)
+extensionDir = fso.BuildPath(installRoot, "chrome-extension")
 
 chrome = shell.ExpandEnvironmentStrings("%ProgramFiles%\Google\Chrome\Application\chrome.exe")
 If Not fso.FileExists(chrome) Then
@@ -14,7 +18,7 @@ If Not fso.FileExists(chrome) Then
 End If
 
 If fso.FileExists(chrome) Then
-  shell.Run """" & chrome & """ --new-window https://chatgpt.com/ https://gemini.google.com/app", 1, False
+  shell.Run """" & chrome & """ --load-extension=""" & extensionDir & """ --new-window https://chatgpt.com/ https://gemini.google.com/app", 1, False
 Else
   shell.Run "https://chatgpt.com/", 1, False
   shell.Run "https://gemini.google.com/app", 1, False

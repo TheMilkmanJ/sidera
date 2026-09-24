@@ -1,13 +1,20 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo Sidera Dual-Hemisphere Mediator setup
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup_prerequisites.ps1"
+echo.
+echo  Sidera Mediator - one-step install
+echo  ----------------------------------
+echo  This copies Sidera to C:\Sidera, connects it to Chrome,
+echo  and offers a desktop icon. Nothing else to configure.
+echo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup_prerequisites.ps1" %*
 if errorlevel 1 (
-  echo Setup failed.
+  echo.
+  echo  Setup did not finish. Read the message above, then run INSTALL.bat again.
   pause
   exit /b 1
 )
-echo Setup finished.
+echo.
+echo  Setup finished. Double-click the Sidera Mediator icon to start.
 pause
 exit /b 0

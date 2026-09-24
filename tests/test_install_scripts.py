@@ -32,9 +32,18 @@ class TestInstallScripts(unittest.TestCase):
         self.assertIn("//B", ps1)
         self.assertIn("chatgpt.com", vbs)
         self.assertIn("gemini.google.com", vbs)
+        self.assertIn("--load-extension=", vbs)
         self.assertNotIn("cmd.exe", vbs.lower())
         self.assertIn("python -u -m mediator.main", host)
         self.assertIn("PYTHONUNBUFFERED=1", host)
+
+    def test_desktop_icon_is_offered(self):
+        ps1 = (ROOT / "setup_prerequisites.ps1").read_text(encoding="utf-8")
+        bat = (ROOT / "INSTALL.bat").read_text(encoding="utf-8")
+        self.assertIn("icon on the desktop?", ps1)
+        self.assertIn('[ValidateSet("Ask", "Yes", "No")]', ps1)
+        self.assertIn('GetFolderPath("Programs")', ps1)
+        self.assertIn("%*", bat)
 
 
 if __name__ == "__main__":
