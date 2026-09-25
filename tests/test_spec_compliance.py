@@ -139,6 +139,35 @@ class RestartPersistence(ServiceTestCase):
         self.assertEqual(service.state_machine.max_autonomous_turns, 7)
 
 
+class PauseAfterCurrentTurn(ServiceTestCase):
+    def test_reply_arriving_while_paused_is_processed_on_resume(self):
+        service = self.make_service()
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        self.run_turn(service, "LEFT", "Opening.", "SIDERA-0000001")
+        self.assertEqual(service.state_machine.state, MediatorState.WAIT_RIGHT)
+        service.handle_message({"type": "PAUSE", "reason": "Operator pause"})
+        # RIGHT finishes its reply while we are paused.
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "Right's answer, written during the pause."})
+        self.assertEqual(len(self.submits()), 1, "nothing pasted while paused")
+        self.assertEqual(service.state_machine.state, MediatorState.PAUSED)
+        service.handle_message({"type": "RESUME"})
+        self.assertEqual(len(self.submits()), 2, "the held reply is forwarded on resume")
+        self.assertEqual(self.submits()[1]["destination"], "LEFT")
+        self.assertEqual(self.submits()[1]["text"], "Right's answer, written during the pause.")
+        self.assertEqual(service.state_machine.state, MediatorState.SEND_LEFT)
+
+    def test_stop_discards_a_held_reply(self):
+        service = self.make_service()
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        self.run_turn(service, "LEFT", "Opening.", "SIDERA-0000001")
+        service.handle_message({"type": "PAUSE"})
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "Late answer."})
+        service.handle_message({"type": "STOP"})
+        self.assertEqual(service.state_machine.state, MediatorState.IDLE)
+        self.assertIsNone(service.held_reply)
+        self.assertEqual(len(self.submits()), 1)
+
+
 class MonitorOnly(ServiceTestCase):
     def test_disabled_submissions_never_paste(self):
         service = self.make_service(autonomous_submissions=False)

@@ -73,6 +73,9 @@ class MediatorService:
         # Results of read/recall tags wait here for the hemisphere that asked
         # and ride along with the next message pasted into it (spec 8.5).
         self.pending_system_blocks: Dict[str, List[str]] = {"LEFT": [], "RIGHT": []}
+        # A reply that arrives while paused is kept and processed on Resume, so
+        # "pause after the current turn" never loses that turn.
+        self.held_reply: Optional[Dict[str, Any]] = None
 
         setup_logging(self.root_dir / "logs")
         logger.info(f"Initializing Sidera Mediator Service at {self.root_dir}")
@@ -339,6 +342,10 @@ class MediatorService:
         elif msg_type == "RESUME":
             self.state_machine.resume()
             self._resend_pending_after_resume()
+            if self.held_reply and self.state_machine.state in (MediatorState.WAIT_LEFT, MediatorState.WAIT_RIGHT):
+                held, self.held_reply = self.held_reply, None
+                logger.info("Processing the reply from %s that arrived while paused", held.get("source"))
+                self.handle_message(held)
 
         elif msg_type == "SUBMISSION_STALLED":
             # The site would not accept the paste (for example Gemini's
@@ -356,6 +363,7 @@ class MediatorService:
         elif msg_type == "STOP":
             self.genesis_pending = []
             self.genesis_target = None
+            self.held_reply = None
             self.state_machine.stop()
 
         elif msg_type == "SET_MAX_TURNS":
@@ -436,6 +444,16 @@ class MediatorService:
             ) or (
                 source == "RIGHT" and self.state_machine.state in (MediatorState.WAIT_RIGHT, MediatorState.IDLE)
             )
+            if self.state_machine.state == MediatorState.PAUSED:
+                expected = self.state_machine.paused_previous_state
+                if (expected == MediatorState.WAIT_LEFT and source == "LEFT") or (
+                    expected == MediatorState.WAIT_RIGHT and source == "RIGHT"
+                ):
+                    if fresh or not self.ledger.is_duplicate(raw_content, source):
+                        self.held_reply = packet
+                        logger.info("Holding the reply from %s until Resume (paused)", source)
+                        self._write_transcript_line(f"- **Paused:** reply from `{source}` held until Resume\n")
+                    return
             if not waiting_for_source:
                 logger.warning(
                     "Ignored unexpected message from %s while in state %s",
