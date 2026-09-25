@@ -16,7 +16,7 @@ node tests/test_completion.js
 node tests/test_content_recovery.js
 ```
 
-Python 3.11 or newer is required (3.10 works, but then `config.toml` is ignored and defaults are used).
+Python 3.11 or newer is required (`config.toml` is read with the standard library's `tomllib`). The installer installs Python 3.12 if no 3.11+ is present.
 
 ## Configuration
 
@@ -39,7 +39,7 @@ Download the folder, double-click `INSTALL.bat`, answer one question about a des
 
 What the installer does:
 
-1. Finds Python 3.10+ if it is already there (`py -3`, `python`, or `python3`) and leaves it alone; otherwise installs Python silently.
+1. Finds Python 3.11+ if it is already there (`py -3`, `python`, or `python3`) and leaves it alone; otherwise installs Python 3.12 silently.
 2. Copies the files to `C:\Sidera`.
 3. Points `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.sidera.mediator` at `C:\Sidera\com.sidera.mediator.json`.
 4. Adds **Sidera Mediator** to the Start menu, and to the desktop if you say yes (the default). Run `INSTALL.bat -DesktopIcon Yes` or `-DesktopIcon No` to skip the question.

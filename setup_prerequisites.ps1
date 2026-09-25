@@ -1,5 +1,5 @@
 # Sidera installer for Windows 10/11.
-# Detects an existing Python 3.10+ and does not reinstall it.
+# Detects an existing Python 3.11+ (needed for config.toml) and does not reinstall it.
 # Registers the Chrome native messaging host and offers a windowless desktop shortcut.
 
 param(
@@ -35,7 +35,7 @@ function Find-SideraPython {
         if ($versionText -notmatch '^(\d+)\.(\d+)$') { continue }
         $major = [int]$Matches[1]
         $minor = [int]$Matches[2]
-        $minimum = [version]"3.10"
+        $minimum = [version]"3.11"
         if (([version]"$major.$minor") -ge $minimum) {
             return @{ Executable = $cmd.Source; Version = $versionText }
         }
@@ -47,11 +47,11 @@ $python = Find-SideraPython
 if ($python) {
     Write-Host "Found Python $($python.Version) at $($python.Executable). Skipping install."
 } else {
-    Write-Host "Python 3.10+ was not found. Installing Python 3.12 silently."
+    Write-Host "Python 3.11+ was not found. Installing Python 3.12 silently."
     winget install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements
     $python = Find-SideraPython
     if (-not $python) {
-        throw "Python 3.10+ is still not available after installation."
+        throw "Python 3.11+ is still not available after installation."
     }
 }
 
