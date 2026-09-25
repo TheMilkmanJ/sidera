@@ -232,10 +232,14 @@ send({ type: "START", initial_hemisphere: "LEFT" });
 // With the Genesis Protocol on, the mediator teaches both sides first and
 // reports GENESIS_COMPLETE; only then does the opening prompt go in.
 const genesisOn = (process.env.SIDERA_GENESIS || "on").toLowerCase() !== "off";
+let genesisChatUrl = null;
 if (genesisOn) {
   const handshakeDeadline = Date.now() + 240000;
   let complete = false;
   while (!complete && Date.now() < handshakeDeadline) {
+    // ChatGPT sometimes reloads to the home page right after the first reply
+    // in a new chat; remember the chat the protocol went into so we can return.
+    if (/\/c\//.test(chatgpt.url())) genesisChatUrl = chatgpt.url();
     while (incoming.length) {
       const message = incoming.shift();
       if (message.type === "SUBMIT_MESSAGE" && message.message_id.startsWith(GENESIS_PREFIX)) {
@@ -260,7 +264,16 @@ if (genesisOn) {
 }
 
 await chatgpt.bringToFront();
-const sent = await sendChatGPT(chatgpt);
+if (genesisChatUrl && !chatgpt.url().includes("/c/")) {
+  console.error(`chatgpt left the protocol chat (${chatgpt.url()}); returning to ${genesisChatUrl}`);
+  await chatgpt.goto(genesisChatUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+}
+let sent = { ok: false };
+for (let attempt = 0; attempt < 12 && !sent.ok; attempt++) {
+  sent = await sendChatGPT(chatgpt);
+  if (!sent.ok) await new Promise((resolve) => setTimeout(resolve, 2500));
+}
 if (!sent.ok) throw new Error(`ChatGPT send failed: ${sent.error} ${sent.text || ""}`);
 async function rebind(which, page, baseline = true) {
   const bridge = await bootPage(page, `sidera-${which}-${Date.now()}`);
