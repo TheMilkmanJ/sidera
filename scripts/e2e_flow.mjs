@@ -144,11 +144,16 @@ const browser = await puppeteer.connect({ browserURL: "http://127.0.0.1:9333", d
 const ownTabs = (process.env.SIDERA_TABS || "").toLowerCase() === "new";
 const pages = await browser.pages();
 const chatgpt = ownTabs ? await browser.newPage() : pages.find((page) => page.url().includes("chatgpt.com"));
-const gemini = ownTabs ? await browser.newPage() : pages.find((page) => page.url().includes("gemini.google.com"));
-if (!chatgpt || !gemini) throw new Error("ChatGPT or Gemini tab is not open");
+// SIDERA_RIGHT=grok runs ChatGPT <-> Grok; the default is Gemini.
+const RIGHT_SITE = (process.env.SIDERA_RIGHT || "gemini").toLowerCase();
+const RIGHT = RIGHT_SITE === "grok"
+  ? { name: "Grok", host: "grok.com", url: "https://grok.com/", composer: ".tiptap.ProseMirror[contenteditable='true'], textarea[aria-label='Ask Grok anything']", send: "button[aria-label='Submit'], button[aria-label*='Send']" }
+  : { name: "Gemini", host: "gemini.google.com", url: "https://gemini.google.com/app", composer: ".ql-editor[aria-label='Enter a prompt for Gemini']", send: "button[aria-label='Send message']" };
+const gemini = ownTabs ? await browser.newPage() : pages.find((page) => page.url().includes(RIGHT.host));
+if (!chatgpt || !gemini) throw new Error(`ChatGPT or ${RIGHT.name} tab is not open`);
 
 await chatgpt.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded", timeout: 60000 });
-await gemini.goto("https://gemini.google.com/app", { waitUntil: "domcontentloaded", timeout: 60000 });
+await gemini.goto(RIGHT.url, { waitUntil: "domcontentloaded", timeout: 60000 });
 await new Promise((resolve) => setTimeout(resolve, 2500));
 
 const left = await bootPage(chatgpt, "sidera-left-" + Date.now());
@@ -169,17 +174,18 @@ const genesisDelivered = [];
 // Gemini only submits on trusted input; its newest input UI also stopped
 // treating Enter as send, so click the Send button when text is pending.
 async function pressGeminiEnterIfPending() {
-  const box = await gemini.evaluate(() => {
-    const el = document.querySelector(".ql-editor[aria-label='Enter a prompt for Gemini']");
-    if (!el || !(el.innerText || "").trim()) return null;
-    const send = document.querySelector("button[aria-label='Send message']");
+  const box = await gemini.evaluate((sel) => {
+    const el = document.querySelector(sel.composer);
+    const text = el ? (el.tagName === "TEXTAREA" ? el.value : el.innerText) : "";
+    if (!el || !(text || "").trim()) return null;
+    const send = document.querySelector(sel.send);
     const editor = el.getBoundingClientRect();
     if (send && send.getBoundingClientRect().width) {
       const rect = send.getBoundingClientRect();
       return { send: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, editor: { x: editor.x + 24, y: editor.y + 12 } };
     }
     return { send: null, editor: { x: editor.x + 24, y: editor.y + 12 } };
-  });
+  }, RIGHT);
   if (!box) return;
   if (box.send) {
     await gemini.mouse.click(box.send.x, box.send.y);
@@ -409,6 +415,7 @@ await browser.disconnect();
 
 const report = {
   flowRoot,
+  rightSite: RIGHT.name,
   genesisDelivered,
   sent,
   submits: submits.map((message) => ({
