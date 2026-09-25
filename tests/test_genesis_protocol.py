@@ -123,6 +123,19 @@ class GenesisProtocolTests(unittest.TestCase):
         self.assertEqual(self.submits(), [])
         self.assertEqual(service.state_machine.state, MediatorState.WAIT_LEFT)
 
+    def test_ready_given_as_a_fresh_reply_to_a_real_message_is_forwarded(self):
+        service = self.make_service(genesis_enabled=False)
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "Acknowledged. Standing by."})
+        service.handle_message({"type": "SUBMISSION_CONFIRMED", "destination": "RIGHT", "message_id": "SIDERA-0000001"})
+        # Stale re-capture of a protocol READY: ignored. Fresh READY as the answer: forwarded.
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "READY", "fresh": False})
+        self.assertEqual(len(self.submits()), 1)
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "READY", "fresh": True})
+        self.assertEqual(len(self.submits()), 2)
+        self.assertEqual(self.submits()[1]["text"], "READY")
+        self.assertEqual(service.state_machine.state, MediatorState.SEND_LEFT)
+
     def test_reply_from_destination_confirms_an_unconfirmed_paste(self):
         service = self.make_service(genesis_enabled=False)
         service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})

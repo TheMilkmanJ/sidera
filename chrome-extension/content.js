@@ -240,6 +240,12 @@
     const text = SideraCompletion.finishedAnswer(raw);
     if (!text || (text === lastCompletedText && !fresh)) return;
     if (SideraCompletion.isErrorReply(text) && recoverFailedReply("Site returned an error instead of a reply")) return;
+    // READY is the right answer to the protocol, not to a real message. If the
+    // site says READY to something we pasted, treat it as a failed reply.
+    const answeringProtocol = !pending
+      || String(pending.messageId).startsWith("GENESIS-")
+      || !!document.documentElement.dataset.sideraAfterGenesis;
+    if (SideraCompletion.isReadyOnly(text) && !answeringProtocol && recoverFailedReply("Site answered READY instead of replying")) return;
 
     lastCompletedText = text;
     sawStop = false;

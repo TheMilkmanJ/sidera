@@ -346,6 +346,31 @@ function makeContext() {
   assert.strictEqual(t.site.newChats, 1, "raised threshold: no further rotation");
 }
 
+// READY as the answer to a real message is a failed reply (resend once);
+// READY as the answer to the protocol paste itself is captured normally.
+{
+  const t = makeContext();
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT" }, {}, () => {});
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "[SIDERA GENESIS PROTOCOL] ... READY", message_id: "GENESIS-RIGHT" }, {}, () => {});
+  t.flushTimers();
+  t.site.latest = "READY";
+  t.advance(3000);
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 1, "READY to the protocol is sent to the mediator");
+  assert.strictEqual(t.site.submits, 1, "no resend for the protocol's READY");
+
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "Acknowledged. Boundary holds. Standing by.", message_id: "SIDERA-0000299" }, {}, () => {});
+  t.flushTimers();
+  t.site.latest = "READY.";
+  t.advance(3000);
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 1, "READY to a real message is not captured yet");
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.submits, 3, "the real message is resent once");
+  assert.strictEqual(t.site.composer, "Acknowledged. Boundary holds. Standing by.");
+}
+
 // SET_GENESIS can arrive after pairing.
 {
   const t = makeContext();

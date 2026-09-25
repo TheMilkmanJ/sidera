@@ -52,5 +52,10 @@
     return ERROR_PHRASE.test(trimmed);
   }
 
-  root.SideraCompletion = { isInterimStatus, finishedAnswer, isErrorReply };
+  // A reply that is nothing but READY (the Genesis acknowledgement word).
+  function isReadyOnly(text) {
+    return /^\W*ready\W*$/i.test(String(text || "").trim());
+  }
+
+  root.SideraCompletion = { isInterimStatus, finishedAnswer, isErrorReply, isReadyOnly };
 })(typeof globalThis !== "undefined" ? globalThis : this);

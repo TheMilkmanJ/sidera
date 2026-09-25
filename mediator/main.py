@@ -475,11 +475,15 @@ class MediatorService:
             fresh = bool(packet.get("fresh"))
             if self._handle_genesis_reply(source, raw_content):
                 return
-            if is_ready_acknowledgement(raw_content):
+            if is_ready_acknowledgement(raw_content) and not fresh:
                 # A bare READY outside the handshake (for example after a chat was
-                # restarted and re-taught) is an acknowledgement, not a turn.
+                # restarted and re-taught) is an acknowledgement, not a turn. A READY
+                # the extension marks as a fresh reply to a real message is forwarded
+                # like any other reply, so the loop can never stall on it.
                 logger.info("READY acknowledgement from %s noted; not forwarded", source)
                 return
+            if is_ready_acknowledgement(raw_content):
+                logger.warning("%s answered READY to a real message; forwarding it rather than stalling", source)
             awaiting_confirmation = (
                 source == "LEFT" and self.state_machine.state == MediatorState.SEND_LEFT
             ) or (
