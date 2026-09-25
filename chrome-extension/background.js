@@ -129,16 +129,24 @@ function broadcastStatus() {
 }
 
 // Some sites (Gemini) ignore synthetic clicks and key events from a content
-// script and only submit on a trusted key press. The debugger protocol can
-// deliver one, so a content script asks for it here after filling the composer.
+// script and only submit on trusted input. The debugger protocol can deliver
+// it, so a content script asks for it here after filling the composer: a
+// click on the Send button when it knows where that is, otherwise Enter.
 const ENTER_KEY = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 };
 
-async function pressTrustedEnter(tabId) {
+async function trustedSubmit(tabId, point) {
   const target = { tabId: tabId };
   await chrome.debugger.attach(target, "1.3");
   try {
-    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { type: "keyDown", text: "\r", unmodifiedText: "\r", ...ENTER_KEY });
-    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { type: "keyUp", ...ENTER_KEY });
+    if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
+      const mouse = { x: point.x, y: point.y, button: "left", clickCount: 1 };
+      await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+      await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { type: "mousePressed", ...mouse });
+      await chrome.debugger.sendCommand(target, "Input.dispatchMouseEvent", { type: "mouseReleased", ...mouse });
+    } else {
+      await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { type: "keyDown", text: "\r", unmodifiedText: "\r", ...ENTER_KEY });
+      await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { type: "keyUp", ...ENTER_KEY });
+    }
   } finally {
     try {
       await chrome.debugger.detach(target);
@@ -150,16 +158,16 @@ async function pressTrustedEnter(tabId) {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const reqType = request.type;
-  if (reqType === "TRUSTED_ENTER") {
+  if (reqType === "TRUSTED_SUBMIT" || reqType === "TRUSTED_ENTER") {
     const tabId = sender.tab && sender.tab.id;
     if (!tabId) {
       sendResponse({ ok: false, error: "no tab" });
       return false;
     }
-    pressTrustedEnter(tabId)
+    trustedSubmit(tabId, request.point)
       .then(() => sendResponse({ ok: true }))
       .catch((err) => {
-        console.warn("Trusted Enter failed:", err && err.message ? err.message : err);
+        console.warn("Trusted submit failed:", err && err.message ? err.message : err);
         sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
       });
     return true;

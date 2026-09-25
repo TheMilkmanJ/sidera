@@ -397,7 +397,7 @@
 
   // Gemini ignores synthetic clicks and key events, so if the text is still
   // sitting in the composer after a submit attempt, ask the background for a
-  // trusted Enter key press (delivered through the debugger protocol).
+  // trusted click on Send (delivered through the debugger protocol).
   const SUBMIT_RETRIES = 3;
 
   function composerElement(site) {
@@ -413,16 +413,27 @@
     return !!(value || "").trim();
   }
 
+  // Where the site's Send button is on screen, so a trusted click can land on
+  // it. Falls back to a trusted Enter in the focused composer when absent.
+  function sendButtonPoint(site) {
+    if (typeof SideraDom === "undefined" || !site.selectors || !site.selectors.sendButton) return null;
+    const button = SideraDom.queryFirst(site.selectors.sendButton, { visible: true, enabled: true });
+    if (!button) return null;
+    const rect = button.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
   function ensureSubmitted(site, attempt) {
     if (!composerHasText(site)) return;
     if (attempt >= SUBMIT_RETRIES) {
-      console.warn(`[Sidera ${hemisphere}] Composer still holds text after ${SUBMIT_RETRIES} trusted Enter attempts.`);
+      console.warn(`[Sidera ${hemisphere}] Composer still holds text after ${SUBMIT_RETRIES} trusted submit attempts.`);
       return;
     }
     const el = composerElement(site);
     if (el) el.focus();
     try {
-      chrome.runtime.sendMessage({ type: "TRUSTED_ENTER", hemisphere: hemisphere }, () => {
+      chrome.runtime.sendMessage({ type: "TRUSTED_SUBMIT", hemisphere: hemisphere, point: sendButtonPoint(site) }, () => {
         void (chrome.runtime && chrome.runtime.lastError);
       });
     } catch (err) {

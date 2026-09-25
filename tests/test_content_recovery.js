@@ -348,11 +348,11 @@ function makeContext() {
   t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "pasted text", message_id: "SIDERA-0000020" }, {}, () => {});
   t.flushTimers(); // submit
   t.flushTimers(); // first check: text still there
-  assert.strictEqual(t.sent.filter((m) => m.type === "TRUSTED_ENTER").length, 1);
+  assert.strictEqual(t.sent.filter((m) => m.type === "TRUSTED_SUBMIT").length, 1);
   assert.strictEqual(composer.focused, 1, "composer focused before the key press");
   composer.innerText = "";
   t.flushTimers(); // re-check: submitted, no further request
-  assert.strictEqual(t.sent.filter((m) => m.type === "TRUSTED_ENTER").length, 1);
+  assert.strictEqual(t.sent.filter((m) => m.type === "TRUSTED_SUBMIT").length, 1);
   assert.strictEqual(t.sent.filter((m) => m.type === "SUBMISSION_CONFIRMED").length, 1);
 }
 

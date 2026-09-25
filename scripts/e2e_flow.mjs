@@ -166,15 +166,25 @@ const RETIRED_KEEP = 4;
 const GENESIS_PREFIX = "GENESIS-";
 const genesisDelivered = [];
 
+// Gemini only submits on trusted input; its newest input UI also stopped
+// treating Enter as send, so click the Send button when text is pending.
 async function pressGeminiEnterIfPending() {
   const box = await gemini.evaluate(() => {
     const el = document.querySelector(".ql-editor[aria-label='Enter a prompt for Gemini']");
     if (!el || !(el.innerText || "").trim()) return null;
-    const rect = el.getBoundingClientRect();
-    return { x: rect.x + 24, y: rect.y + 12 };
+    const send = document.querySelector("button[aria-label='Send message']");
+    const editor = el.getBoundingClientRect();
+    if (send && send.getBoundingClientRect().width) {
+      const rect = send.getBoundingClientRect();
+      return { send: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }, editor: { x: editor.x + 24, y: editor.y + 12 } };
+    }
+    return { send: null, editor: { x: editor.x + 24, y: editor.y + 12 } };
   });
-  if (box) {
-    await gemini.mouse.click(box.x, box.y);
+  if (!box) return;
+  if (box.send) {
+    await gemini.mouse.click(box.send.x, box.send.y);
+  } else {
+    await gemini.mouse.click(box.editor.x, box.editor.y);
     await gemini.keyboard.press("Enter");
   }
 }
@@ -216,21 +226,25 @@ async function drainRetired() {
   }
 }
 
-// The content script asks its background for a trusted Enter when a site
-// ignores synthetic submits; here the harness plays the background's part.
-async function pressTrustedEnter(side) {
+// The content script asks its background for a trusted submit when a site
+// ignores synthetic input; here the harness plays the background's part.
+async function trustedSubmit(side, point) {
   const page = side === "RIGHT" ? gemini : chatgpt;
   try {
-    await page.keyboard.press("Enter");
+    if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
+      await page.mouse.click(point.x, point.y);
+    } else {
+      await page.keyboard.press("Enter");
+    }
   } catch (err) {
-    console.error(`trusted Enter failed for ${side}: ${err.message}`);
+    console.error(`trusted submit failed for ${side}: ${err.message}`);
   }
 }
 
 async function routePackets(side, packets) {
   for (const packet of packets) {
-    if (packet.type === "TRUSTED_ENTER") {
-      await pressTrustedEnter(side);
+    if (packet.type === "TRUSTED_SUBMIT" || packet.type === "TRUSTED_ENTER") {
+      await trustedSubmit(side, packet.point);
     } else {
       send(packet);
     }
