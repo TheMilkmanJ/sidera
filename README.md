@@ -90,4 +90,6 @@ Very long single chats are where ChatGPT and Gemini start hanging or answering w
 - A reply that shows no new text for 6 minutes while the site still says it is generating is stopped and the message is resent once.
 - A canned error reply ("I encountered an error…", "Something went wrong…") is not forwarded; the message is resent once.
 - If the same message fails twice, or after 50 pastes into one chat, the side opens a fresh chat, re-teaches the Genesis Protocol, and continues there.
-- Only an exact repeat of a side's most recent reply is treated as a duplicate.
+- Only an exact repeat of a side's most recent reply is treated as a duplicate; a reply that genuinely repeats the previous one is still forwarded.
+- Gemini only submits on trusted input, so the extension presses its Send button through Chrome's debugger API when a paste is still sitting in the composer (the launcher passes `--silent-debugger-extension-api`, so there is no infobar).
+- If a site keeps refusing a message (for example Gemini's "Something went wrong (1095)" after a usage limit), the mediator pauses and shows the site's own notice in the popup and log. Press Resume once the site accepts messages again; the pending message is pasted again automatically.

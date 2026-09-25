@@ -376,7 +376,7 @@
 
     setTimeout(() => {
       const submitted = site.submitComposer();
-      setTimeout(() => ensureSubmitted(site, 0), 1500);
+      setTimeout(() => ensureSubmitted(site, 0, messageId), 1500);
       if (quiet) return;
       if (!submitted) {
         chrome.runtime.sendMessage({
@@ -424,10 +424,24 @@
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   }
 
-  function ensureSubmitted(site, attempt) {
+  // The site's own failure notice, if one is showing ("Something went wrong").
+  function siteErrorNotice() {
+    const text = (document.body && document.body.innerText) || "";
+    const match = text.match(/[^\n]{0,40}(?:something went wrong|try again later|too many requests|unusual activity|you've reached|rate limit)[^\n]{0,60}/i);
+    return match ? match[0].trim() : "";
+  }
+
+  function ensureSubmitted(site, attempt, messageId) {
     if (!composerHasText(site)) return;
     if (attempt >= SUBMIT_RETRIES) {
-      console.warn(`[Sidera ${hemisphere}] Composer still holds text after ${SUBMIT_RETRIES} trusted submit attempts.`);
+      const notice = siteErrorNotice();
+      console.warn(`[Sidera ${hemisphere}] Composer still holds text after ${SUBMIT_RETRIES} trusted submit attempts. ${notice}`);
+      chrome.runtime.sendMessage({
+        type: "SUBMISSION_STALLED",
+        hemisphere: hemisphere,
+        message_id: messageId,
+        detail: notice ? `${site.name} refused the message: ${notice}` : `${site.name} did not accept the message after ${SUBMIT_RETRIES} attempts.`,
+      });
       return;
     }
     const el = composerElement(site);
@@ -439,7 +453,7 @@
     } catch (err) {
       // No background available (e.g. a test harness); nothing more to try here.
     }
-    setTimeout(() => ensureSubmitted(site, attempt + 1), 2500);
+    setTimeout(() => ensureSubmitted(site, attempt + 1, messageId), 2500);
   }
 
   function noteActivity() {

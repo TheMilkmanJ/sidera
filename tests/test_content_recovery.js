@@ -356,6 +356,24 @@ function makeContext() {
   assert.strictEqual(t.sent.filter((m) => m.type === "SUBMISSION_CONFIRMED").length, 1);
 }
 
+// If the site keeps refusing, the script reports a stall with the site's notice.
+{
+  const t = makeContext();
+  const composer = { tagName: "DIV", innerText: "pasted text", focus() {} };
+  t.ctx.SideraDom = { queryFirst: () => composer };
+  t.site.selectors = { composerTextarea: [".fake-composer"] };
+  t.site.name = "Gemini";
+  t.ctx.document.body = { innerText: "Ask away\nSomething went wrong (1095)\n" };
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT" }, {}, () => {});
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "pasted text", message_id: "SIDERA-0000021" }, {}, () => {});
+  for (let i = 0; i < 6; i++) t.flushTimers();
+  assert.strictEqual(t.sent.filter((m) => m.type === "TRUSTED_SUBMIT").length, 3, "three trusted attempts");
+  const stalled = t.sent.filter((m) => m.type === "SUBMISSION_STALLED");
+  assert.strictEqual(stalled.length, 1);
+  assert.strictEqual(stalled[0].message_id, "SIDERA-0000021");
+  assert.ok(/Gemini refused the message: .*Something went wrong \(1095\)/.test(stalled[0].detail), stalled[0].detail);
+}
+
 // A newer paired copy retires the older one.
 {
   const t = makeContext();

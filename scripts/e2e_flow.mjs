@@ -329,7 +329,7 @@ const submits = [];
 let error = null;
 let lastLogged = 0;
 let lastProgress = Date.now();
-while (Date.now() < deadline && submits.length < TURN_GOAL) {
+while (Date.now() < deadline && submits.length < TURN_GOAL && !error) {
   try {
     if (chatgpt.url() !== urls.LEFT) {
       await withTimeout(rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT")), 8000);
@@ -366,6 +366,11 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
     if (message.type === "STATE_UPDATE" && message.state === "ERROR") {
       error = message.last_error || "mediator error";
       console.error(`mediator error: ${error}`);
+    }
+    if (message.type === "STATE_UPDATE" && message.state === "PAUSED" && /refused|did not accept/i.test(message.last_error || "")) {
+      // A site is turning messages away (usage limit); no point waiting it out here.
+      error = message.last_error;
+      console.error(`mediator paused: ${error}`);
     }
   }
   if (submits.length !== lastLogged) {

@@ -164,6 +164,33 @@ class GenesisProtocolTests(unittest.TestCase):
         self.assertEqual(self.submits()[3]["message_id"], "SIDERA-0000004")
         self.assertEqual(self.submits()[3]["text"], "Confirmed. State remains SPECIFIED.")
 
+    def test_refused_paste_pauses_with_the_sites_reason_and_resume_resends(self):
+        service = self.make_service(genesis_enabled=False)
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "Shall we begin?"})
+        self.assertEqual(service.state_machine.state, MediatorState.SEND_RIGHT)
+        service.handle_message({
+            "type": "SUBMISSION_STALLED",
+            "hemisphere": "RIGHT",
+            "message_id": "SIDERA-0000001",
+            "detail": "Gemini refused the message: Something went wrong (1095)",
+        })
+        self.assertEqual(service.state_machine.state, MediatorState.PAUSED)
+        self.assertIn("Something went wrong (1095)", service.state_machine.last_error)
+        self.assertIn("Press Resume", service.state_machine.last_error)
+        self.assertEqual(len(self.submits()), 1)
+
+        service.handle_message({"type": "RESUME"})
+        self.assertEqual(service.state_machine.state, MediatorState.SEND_RIGHT)
+        self.assertEqual(len(self.submits()), 2, "the pending message is pasted again on resume")
+        self.assertEqual(self.submits()[1]["message_id"], "SIDERA-0000001")
+        self.assertEqual(self.submits()[1]["destination"], "RIGHT")
+        self.assertEqual(self.submits()[1]["text"], "Shall we begin?")
+
+        # Delivered this time: the loop carries on.
+        service.handle_message({"type": "SUBMISSION_CONFIRMED", "destination": "RIGHT", "message_id": "SIDERA-0000001"})
+        self.assertEqual(service.state_machine.state, MediatorState.WAIT_RIGHT)
+
     def test_genesis_can_be_switched_off(self):
         service = self.make_service(genesis_enabled=False)
         service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})

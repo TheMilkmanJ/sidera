@@ -179,6 +179,25 @@ class MediatorService:
         self._send_genesis_to_next()
         return True
 
+    def _resend_pending_after_resume(self):
+        """After a pause taken mid-send, paste the pending message again."""
+        state = self.state_machine.state
+        if state not in (MediatorState.SEND_LEFT, MediatorState.SEND_RIGHT):
+            return
+        message_id = self.state_machine.current_message_id
+        record = self.ledger.get_message(message_id) if message_id else None
+        if not record:
+            return
+        dest = "LEFT" if state == MediatorState.SEND_LEFT else "RIGHT"
+        text = record.get("clean_content") or record.get("content") or ""
+        logger.info("Resuming: pasting %s into %s again", message_id, dest)
+        self.ipc.send_message({
+            "type": "SUBMIT_MESSAGE",
+            "destination": dest,
+            "message_id": message_id,
+            "text": text,
+        })
+
     def handle_message(self, packet: Dict[str, Any]):
         msg_type = packet.get("type", "").upper()
         logger.info(f"Handling incoming packet: {msg_type}")
@@ -210,6 +229,20 @@ class MediatorService:
 
         elif msg_type == "RESUME":
             self.state_machine.resume()
+            self._resend_pending_after_resume()
+
+        elif msg_type == "SUBMISSION_STALLED":
+            # The site would not accept the paste (for example Gemini's
+            # "Something went wrong" after a usage limit). Pause with the
+            # site's own words so the operator knows what to wait for.
+            detail = packet.get("detail") or "The site did not accept the message."
+            message_id = packet.get("message_id")
+            logger.warning("SUBMISSION_STALLED message=%s hemisphere=%s detail=%s", message_id, packet.get("hemisphere"), detail)
+            self._write_transcript_line(
+                f"- **Error signal:** `SUBMISSION_STALLED` message=`{message_id}` detail=`{detail}`\n"
+            )
+            if self.state_machine.state in (MediatorState.SEND_LEFT, MediatorState.SEND_RIGHT):
+                self.state_machine.pause(f"{detail} Press Resume once the site accepts messages again.")
 
         elif msg_type == "STOP":
             self.state_machine.stop()
