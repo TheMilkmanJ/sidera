@@ -9,6 +9,10 @@
 const GeminiAdapter = {
   name: "Gemini",
   selectors: {
+    userMessage: [
+      'user-query',
+      '.user-query-container',
+    ],
     newChatControl: [
       'a[aria-label="New chat"][href="/app"]',
       'a[aria-label="New chat"]',
@@ -51,24 +55,20 @@ const GeminiAdapter = {
     const stopBtn = SideraDom.queryFirst(this.selectors.stopButton, { visible: true });
     return stopBtn !== null && !stopBtn.disabled;
   },
-  countAssistantMessages() {
-    // textContent avoids the layout cost of innerText; this only needs to know
-    // how many answers with any text are on the page.
-    for (const sel of this.selectors.assistantMessage) {
+  getLatestUserMessage() {
+    for (const sel of this.selectors.userMessage) {
       let nodes = [];
       try {
         nodes = document.querySelectorAll(sel);
       } catch (err) {
         continue;
       }
-      if (!nodes.length) continue;
-      let count = 0;
-      for (const node of nodes) {
-        if ((node.textContent || "").trim()) count += 1;
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        const text = (nodes[i].textContent || "").trim();
+        if (text) return { element: nodes[i], text: text };
       }
-      return count;
     }
-    return 0;
+    return null;
   },
   startNewChat() {
     const control = SideraDom.queryFirst(this.selectors.newChatControl, { visible: true });

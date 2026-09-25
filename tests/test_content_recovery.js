@@ -290,35 +290,51 @@ function makeContext() {
 }
 
 // A reply identical to the previous one is still captured (marked fresh) when
-// a new answer appeared after the paste; the same answer is never sent twice.
+// it sits below the user message holding our paste; the same answer is never
+// sent twice, and a stale re-capture above the paste is not fresh.
 {
   const t = makeContext();
-  t.site.answers = 3;
-  t.site.countAssistantMessages = function () { return this.answers; };
+  // Fake DOM order: each node has a position; "following" means larger position.
+  const FOLLOWING = 4;
+  const node = (pos) => ({ pos, compareDocumentPosition(other) { return other.pos > pos ? FOLLOWING : 2; } });
+  t.site.userNode = null;
+  t.site.answerNode = node(1);
+  t.site.getLatestAssistantMessage = function () { return this.latest ? { element: this.answerNode, text: this.latest } : null; };
+  t.site.getLatestUserMessage = function () { return this.userNode ? { element: this.userNode, text: this.userText } : null; };
+
   t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT" }, {}, () => {});
-  t.site.latest = "Confirmed. State remains SPECIFIED.";
+  t.site.latest = "Acknowledged. GATE: OPEN.";
+  t.advance(3000);
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 1);
+
+  // Our paste lands below the old answer; the old answer is above it: not fresh.
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "Acknowledged. GATE: OPEN. Standing by.", message_id: "SIDERA-0000010" }, {}, () => {});
+  t.flushTimers();
+  t.site.userNode = node(2);
+  t.site.userText = "You said Acknowledged. GATE: OPEN. Standing by.";
+  t.advance(3000);
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 1, "old answer above the paste is not a reply to it");
+
+  // A new answer below the paste with identical wording: fresh, captured once.
+  t.site.answerNode = node(3);
+  t.site.latest = "Acknowledged. GATE: OPEN.";
   t.advance(3000);
   t.ctx.__sideraHeartbeat();
   let captured = t.sent.filter((m) => m.type === "RESPONSE_CAPTURED");
-  assert.strictEqual(captured.length, 1);
-
-  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "Confirmed.", message_id: "SIDERA-0000010" }, {}, () => {});
-  t.flushTimers();
-  t.advance(3000);
-  t.ctx.__sideraHeartbeat();
-  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 1, "nothing new on the page yet");
-
-  t.site.answers = 4;
-  t.site.latest = "Confirmed. State remains SPECIFIED.";
-  t.advance(3000);
-  t.ctx.__sideraHeartbeat();
-  captured = t.sent.filter((m) => m.type === "RESPONSE_CAPTURED");
-  assert.strictEqual(captured.length, 2, "identical wording but a new answer node: captured");
+  assert.strictEqual(captured.length, 2, "identical wording below the paste: captured");
   assert.strictEqual(captured[1].fresh, true);
-
   t.advance(3000);
   t.ctx.__sideraHeartbeat();
   assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 2, "not captured a second time");
+
+  // A different answer later is captured as usual, even without a new paste.
+  t.site.answerNode = node(4);
+  t.site.latest = "A different reply.";
+  t.advance(3000);
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 3);
 }
 
 // A newer paired copy retires the older one.

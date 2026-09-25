@@ -75,7 +75,7 @@
     sawStop = false;
     delete document.documentElement.dataset.sideraLastText;
     delete document.documentElement.dataset.sideraSawStop;
-    delete document.documentElement.dataset.sideraAnswersAtPaste;
+    delete document.documentElement.dataset.sideraCapturedFor;
     resetFailureTimers();
     return true;
   }
@@ -192,10 +192,10 @@
     const latest = site.getLatestAssistantMessage();
     const raw = latest && latest.text ? latest.text : "";
     if (!raw) return;
-    // An answer that appeared after our last paste is a new reply even when
+    // An answer that sits below the message we pasted is a new reply even when
     // it repeats the previous one word for word.
-    const answers = countAnswers(site);
-    const fresh = answers !== null && answersAtPaste() !== null && answers > answersAtPaste();
+    const pending = loadLastInjected();
+    const fresh = isReplyToLastPaste(site, latest, pending);
     if (raw === lastCompletedText && !fresh) return;
     if (SideraCompletion.isInterimStatus(raw)) return;
     const text = SideraCompletion.finishedAnswer(raw);
@@ -206,7 +206,7 @@
     sawStop = false;
     document.documentElement.dataset.sideraLastText = text;
     delete document.documentElement.dataset.sideraSawStop;
-    if (answers !== null) setAnswersAtPaste(answers);
+    if (pending) document.documentElement.dataset.sideraCapturedFor = pending.messageId;
 
     const queued = takeQueuedAfterGenesis();
     if (queued) {
@@ -224,22 +224,27 @@
     });
   }
 
-  function countAnswers(site) {
-    if (typeof site.countAssistantMessages !== "function") return null;
+  function normalizeSnippet(text, length) {
+    return String(text || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, length);
+  }
+
+  // True when the newest assistant message comes after the user message that
+  // holds our last paste, and we have not already captured a reply to it.
+  function isReplyToLastPaste(site, latest, pending) {
+    if (!pending || !latest || !latest.element || typeof site.getLatestUserMessage !== "function") return false;
+    if (document.documentElement.dataset.sideraCapturedFor === pending.messageId) return false;
+    let user = null;
     try {
-      return site.countAssistantMessages();
+      user = site.getLatestUserMessage();
     } catch (err) {
-      return null;
+      return false;
     }
-  }
-
-  function answersAtPaste() {
-    const value = document.documentElement.dataset.sideraAnswersAtPaste;
-    return value === undefined ? null : Number(value);
-  }
-
-  function setAnswersAtPaste(count) {
-    document.documentElement.dataset.sideraAnswersAtPaste = String(count);
+    if (!user || !user.element) return false;
+    const pasted = normalizeSnippet(pending.text, 60);
+    if (!pasted || !normalizeSnippet(user.text, 100000).includes(pasted)) return false;
+    const FOLLOWING = (typeof Node !== "undefined" && Node.DOCUMENT_POSITION_FOLLOWING) || 4;
+    if (typeof user.element.compareDocumentPosition !== "function") return false;
+    return (user.element.compareDocumentPosition(latest.element) & FOLLOWING) !== 0;
   }
 
   // Spinners and icons animate SVG attributes continuously; that churn must not
@@ -356,8 +361,6 @@
       }
       setPasteCount(count);
     }
-    const answersNow = countAnswers(site);
-    if (answersNow !== null) setAnswersAtPaste(answersNow);
     try {
       site.setComposerText(text);
     } catch (err) {
