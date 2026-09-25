@@ -26,32 +26,31 @@ class GenesisProtocolTests(unittest.TestCase):
 
     def test_prompt_teaches_the_client_tag_grammar(self):
         prompt = load_genesis_prompt()
+        # Canonical spelling from the build spec, section 8: no space after "SIDERA:".
         for needle in (
-            "[[MEMORY:inventions]]",
-            "[[/MEMORY]]",
-            '[[SIDERA: MEMORY_WRITE category="inventions" project="gyrocell"]]',
-            '[[SIDERA: MEMORY_READ category="inventions" project="gyrocell" limit="5"]]',
-            '[[SIDERA: FILE_APPEND path="notes/gyrocell.md"]]',
-            '[[SIDERA: FILE_WRITE path="notes/summary.md"]]',
-            '[[SIDERA: FILE_READ path="notes/gyrocell.md"]]',
-            "[[SIDERA: FILE_LIST]]",
+            '[[SIDERA:MEMORY_WRITE category="inventions" project="gyrocell"]]',
+            '[[SIDERA:MEMORY_READ category="inventions" project="gyrocell" limit="20"]]',
+            '[[SIDERA:FILE_APPEND path="notes/gyrocell.md"]]',
+            '[[SIDERA:FILE_WRITE path="notes/summary.md"]]',
+            '[[SIDERA:FILE_READ path="notes/gyrocell.md"]]',
+            "[[SIDERA:FILE_LIST]]",
             "[[/SIDERA]]",
-            "[[SIDERA: STATUS]]",
-            '[[SIDERA: PAUSE reason="why"]]',
-            "[[SIDERA: STOP]]",
+            "[[SIDERA:STATUS]]",
+            '[[SIDERA:PAUSE reason="why"]]',
+            "[[SIDERA:STOP]]",
+            "[[MEMORY:inventions]] ... [[/MEMORY]]",
             "READY",
         ):
             self.assertIn(needle, prompt)
+        self.assertNotIn("[[SIDERA: ", prompt)
         # Every example in the prompt must parse cleanly with the real parser.
         clean, operations, errors = TagParser().parse(prompt)
         self.assertEqual(errors, [])
         self.assertEqual(
             sorted(op["type"] for op in operations),
+            # The legacy [[MEMORY:...]] example in the prompt parses as a second MEMORY_WRITE.
             sorted(["MEMORY_WRITE", "MEMORY_WRITE", "MEMORY_READ", "FILE_APPEND", "FILE_WRITE", "FILE_READ", "FILE_LIST", "STATUS", "PAUSE", "STOP"]),
         )
-        legacy = [op for op in operations if op["raw_match"].startswith("[[MEMORY:")]
-        self.assertEqual(len(legacy), 1)
-        self.assertEqual(legacy[0]["attributes"]["category"], "inventions")
         self.assertTrue(GENESIS_PROMPT_PATH.exists())
 
     def test_handshake_teaches_both_sides_before_the_first_turn(self):

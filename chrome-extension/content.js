@@ -488,6 +488,10 @@
     } else if (msg.type === "SET_GENESIS") {
       if (typeof msg.genesis === "string") document.documentElement.dataset.sideraGenesis = msg.genesis;
       sendResponse({ status: "ok" });
+    } else if (msg.type === "GET_LATEST_MESSAGE") {
+      const site = adapter();
+      const generating = !!(site && site.isGenerating());
+      sendResponse({ text: generating ? "" : currentAnswer(), generating: generating });
     }
     return true;
   });

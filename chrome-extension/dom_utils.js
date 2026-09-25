@@ -105,6 +105,50 @@
     }
   }
 
+  // Resolves with the newest assistant message once the site has stopped
+  // generating and the text has been stable for the debounce period. Rejects
+  // after timeoutMs so a stuck model is never mistaken for a finished one.
+  function waitForCompletedAssistantMessage(adapter, options) {
+    const debounceMs = (options && options.debounceMs) || 2500;
+    const timeoutMs = (options && options.timeoutMs) || 10 * 60 * 1000;
+    const pollMs = (options && options.pollMs) || 250;
+    return new Promise((resolve, reject) => {
+      const started = Date.now();
+      let lastText = null;
+      let stableSince = 0;
+      const tick = () => {
+        if (Date.now() - started > timeoutMs) {
+          reject(new Error("Timed out waiting for a completed assistant message"));
+          return;
+        }
+        if (adapter.isGenerating()) {
+          lastText = null;
+          stableSince = 0;
+          setTimeout(tick, pollMs);
+          return;
+        }
+        const latest = adapter.getLatestAssistantMessage();
+        const text = latest && latest.text ? latest.text : "";
+        if (!text) {
+          setTimeout(tick, pollMs);
+          return;
+        }
+        if (text !== lastText) {
+          lastText = text;
+          stableSince = Date.now();
+          setTimeout(tick, pollMs);
+          return;
+        }
+        if (Date.now() - stableSince >= debounceMs) {
+          resolve(latest);
+          return;
+        }
+        setTimeout(tick, pollMs);
+      };
+      tick();
+    });
+  }
+
   root.SideraDom = {
     isVisible: isVisible,
     queryFirst: queryFirst,
@@ -112,5 +156,6 @@
     setComposerText: setComposerText,
     clickControl: clickControl,
     pressEnter: pressEnter,
+    waitForCompletedAssistantMessage: waitForCompletedAssistantMessage,
   };
 })(globalThis);

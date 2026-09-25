@@ -4,6 +4,9 @@ let nativePort = null;
 let currentMediatorState = "IDLE";
 let currentTurnCount = 0;
 let lastMessageId = null;
+let lastError = null;
+let maxTurns = null;
+let autonomousSubmissions = true;
 // Genesis Protocol text from the mediator; a tab that starts a fresh chat
 // re-teaches it before continuing.
 let genesisText = "";
@@ -83,7 +86,10 @@ function handleMediatorMessage(msg) {
   if (type === "STATE_UPDATE" || type === "STATUS_RESPONSE") {
     currentMediatorState = msg.state;
     currentTurnCount = msg.turn_count || 0;
-    lastMessageId = msg.last_message_id || null;
+    lastMessageId = msg.last_message_id || lastMessageId;
+    lastError = msg.last_error || null;
+    if (typeof msg.max_turns === "number") maxTurns = msg.max_turns;
+    if (typeof msg.autonomous_submissions === "boolean") autonomousSubmissions = msg.autonomous_submissions;
     persistSession();
     broadcastStatus();
   } else if (type === "GENESIS_TEXT") {
@@ -116,16 +122,41 @@ function handleMediatorMessage(msg) {
   }
 }
 
-function broadcastStatus() {
-  chrome.runtime.sendMessage({
-    type: "POPUP_STATUS_UPDATE",
+function statusSnapshot() {
+  return {
     state: currentMediatorState,
     turnCount: currentTurnCount,
+    maxTurns: maxTurns,
     lastMessageId: lastMessageId,
+    lastError: lastError,
+    autonomousSubmissions: autonomousSubmissions,
     leftPaired: !!slotRegistry.LEFT.tabId,
     rightPaired: !!slotRegistry.RIGHT.tabId,
     slots: slotRegistry,
-  }).catch(() => {});
+    connected: !!nativePort,
+  };
+}
+
+function broadcastStatus() {
+  chrome.runtime.sendMessage({ type: "POPUP_STATUS_UPDATE", ...statusSnapshot() }).catch(() => {});
+}
+
+// Manual Forward: read the newest completed reply from one paired tab and
+// hand it to the mediator as if it had just been captured (spec 10).
+function manualForward(source, sendResponse) {
+  const slot = slotRegistry[source];
+  if (!slot || !slot.tabId) {
+    sendResponse({ ok: false, error: `${source} is not paired` });
+    return;
+  }
+  chrome.tabs.sendMessage(slot.tabId, { type: "GET_LATEST_MESSAGE" }, (reply) => {
+    if (chrome.runtime.lastError || !reply || !reply.text) {
+      sendResponse({ ok: false, error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || `No completed reply found in the ${source} tab` });
+      return;
+    }
+    sendToMediator({ type: "MANUAL_FORWARD", source: source, content: reply.text });
+    sendResponse({ ok: true, chars: reply.text.length });
+  });
 }
 
 // Some sites (Gemini) ignore synthetic clicks and key events from a content
@@ -173,15 +204,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   if (reqType === "GET_STATUS") {
-    sendResponse({
-      state: currentMediatorState,
-      turnCount: currentTurnCount,
-      lastMessageId: lastMessageId,
-      leftPaired: !!slotRegistry.LEFT.tabId,
-      rightPaired: !!slotRegistry.RIGHT.tabId,
-      slots: slotRegistry,
-      connected: !!nativePort,
-    });
+    sendToMediator({ type: "GET_STATUS" });
+    sendResponse(statusSnapshot());
+  } else if (reqType === "MANUAL_FORWARD") {
+    manualForward((request.source || "LEFT").toUpperCase(), sendResponse);
+    return true;
+  } else if (reqType === "SET_MAX_TURNS") {
+    sendToMediator({ type: "SET_MAX_TURNS", max_turns: request.max_turns });
+  } else if (reqType === "OPEN_DATA_FOLDER" || reqType === "OPEN_LATEST_LOG") {
+    sendToMediator({ type: reqType });
   } else if (reqType === "PAIR_TAB" || reqType === "HOOK_TAB") {
     const slotId = (request.side || request.slotId || "LEFT").toUpperCase();
     const adapterType = request.adapterType || (slotId === "LEFT" ? "chatgpt" : "gemini");
@@ -211,7 +242,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendToMediator({ type: "RESUME" });
   } else if (reqType === "STOP") {
     sendToMediator({ type: "STOP" });
-  } else if (reqType === "RESPONSE_CAPTURED" || reqType === "SUBMISSION_CONFIRMED" || reqType === "INJECTION_ERROR") {
+  } else if (reqType === "RESPONSE_CAPTURED" || reqType === "SUBMISSION_CONFIRMED" || reqType === "INJECTION_ERROR" || reqType === "SUBMISSION_STALLED") {
     sendToMediator(request);
   }
   return true;

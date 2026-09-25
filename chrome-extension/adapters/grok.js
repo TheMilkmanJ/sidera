@@ -93,6 +93,9 @@ const GrokAdapter = {
     }
     return null;
   },
+  waitForCompletedAssistantMessage(options) {
+    return SideraDom.waitForCompletedAssistantMessage(this, options);
+  },
   startNewChat() {
     const control = SideraDom.queryFirst(this.selectors.newChatControl, { visible: true });
     if (!control) return false;
