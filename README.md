@@ -43,13 +43,17 @@ Everything lives under `data/` (on Windows, `C:\Sidera\data\`):
 - `data/logs/sidera_mediator.log` — state transitions (`STATUS turn=N/50`), acknowledgements, tag errors, injection errors, Genesis events, and `BURN_IN_LIMIT_REACHED` when the 50-turn ceiling stops the next send.
 - `data/ledger.sqlite` — the message ledger (ids, hashes, statuses, turns).
 - `data/memory/<category>.jsonl` and `data/memory/<category>.md` — one entry (`MEM-000001`, …) per `MEMORY_WRITE`, with project, source and the message it came from. The `.md` file is a readable mirror of the `.jsonl`.
-- `data/files/…` — files the AIs append to with `FILE_APPEND`. Paths are confined to this folder; only `.md .txt .json .jsonl .csv` are allowed.
+- `data/files/…` — the restricted Sidera folder the AIs read and write with `FILE_WRITE`, `FILE_APPEND`, `FILE_READ` and `FILE_LIST`. Paths are confined to this folder (no `..`, no absolute or UNC paths); only `.md .txt .json .jsonl .csv` are allowed.
 
 ## Control tags
 
 An AI embeds tags in a reply; the host executes them and strips them before forwarding, so the other AI never sees them:
 
 ```text
+[[MEMORY:inventions]]
+note text
+[[/MEMORY]]
+
 [[SIDERA: MEMORY_WRITE category="inventions" project="gyrocell"]]
 note text
 [[/SIDERA]]
@@ -62,8 +66,14 @@ optional search words
 text to append
 [[/SIDERA]]
 
+[[SIDERA: FILE_WRITE path="notes/summary.md"]]
+whole file content (creates or replaces)
+[[/SIDERA]]
+
 [[SIDERA: FILE_READ path="notes/gyrocell.md"]]
 [[/SIDERA]]
+
+[[SIDERA: FILE_LIST]]
 
 [[SIDERA: STATUS]]
 [[SIDERA: PAUSE reason="Awaiting verification"]]
@@ -71,7 +81,7 @@ text to append
 [[SIDERA: READY]]
 ```
 
-`MEMORY_READ` and `FILE_READ` results are attached to the forwarded reply. The short spellings `SAVE` (a memory, or a file when `path=` is given), `RECALL`, `READ`, `REMEMBER` and `APPEND` are accepted as aliases.
+`[[MEMORY:category]]` is the short memory tag from the brief; it saves to the given category under project `default`. `MEMORY_READ`, `FILE_READ` and `FILE_LIST` results are attached to the forwarded reply. The short spellings `SAVE` (a memory, or a file when `path=` is given), `RECALL`, `READ`, `WRITE`, `LIST`, `REMEMBER` and `APPEND` are accepted as aliases.
 
 ## Long sessions
 

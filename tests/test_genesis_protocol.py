@@ -27,10 +27,14 @@ class GenesisProtocolTests(unittest.TestCase):
     def test_prompt_teaches_the_client_tag_grammar(self):
         prompt = load_genesis_prompt()
         for needle in (
+            "[[MEMORY:inventions]]",
+            "[[/MEMORY]]",
             '[[SIDERA: MEMORY_WRITE category="inventions" project="gyrocell"]]',
             '[[SIDERA: MEMORY_READ category="inventions" project="gyrocell" limit="5"]]',
             '[[SIDERA: FILE_APPEND path="notes/gyrocell.md"]]',
+            '[[SIDERA: FILE_WRITE path="notes/summary.md"]]',
             '[[SIDERA: FILE_READ path="notes/gyrocell.md"]]',
+            "[[SIDERA: FILE_LIST]]",
             "[[/SIDERA]]",
             "[[SIDERA: STATUS]]",
             '[[SIDERA: PAUSE reason="why"]]',
@@ -42,9 +46,12 @@ class GenesisProtocolTests(unittest.TestCase):
         clean, operations, errors = TagParser().parse(prompt)
         self.assertEqual(errors, [])
         self.assertEqual(
-            [op["type"] for op in operations],
-            ["MEMORY_WRITE", "MEMORY_READ", "FILE_APPEND", "FILE_READ", "STATUS", "PAUSE", "STOP"],
+            sorted(op["type"] for op in operations),
+            sorted(["MEMORY_WRITE", "MEMORY_WRITE", "MEMORY_READ", "FILE_APPEND", "FILE_WRITE", "FILE_READ", "FILE_LIST", "STATUS", "PAUSE", "STOP"]),
         )
+        legacy = [op for op in operations if op["raw_match"].startswith("[[MEMORY:")]
+        self.assertEqual(len(legacy), 1)
+        self.assertEqual(legacy[0]["attributes"]["category"], "inventions")
         self.assertTrue(GENESIS_PROMPT_PATH.exists())
 
     def test_handshake_teaches_both_sides_before_the_first_turn(self):
@@ -178,6 +185,37 @@ class ReadyAndAliasTests(unittest.TestCase):
             self.assertTrue(is_ready_acknowledgement(text), text)
         for text in ("READY to begin: the four-day week is a mistake.", "Not ready yet", ""):
             self.assertFalse(is_ready_acknowledgement(text), text)
+
+    def test_file_write_and_list_operate_inside_the_sandbox(self):
+        import shutil, tempfile
+        from pathlib import Path
+        from mediator.file_sandbox import FileSandbox
+        from mediator.memory_store import MemoryStore
+        root = Path(tempfile.mkdtemp(prefix="sidera-files-"))
+        try:
+            sandbox = FileSandbox(root / "files")
+            memory = MemoryStore(root / "memory")
+            parser = TagParser()
+            text = (
+                '[[SIDERA: FILE_WRITE path="notes/summary.md"]]\n# Summary\nfirst version\n[[/SIDERA]]\n'
+                '[[SIDERA: FILE_WRITE path="notes/summary.md"]]\n# Summary\nsecond version\n[[/SIDERA]]\n'
+                '[[SIDERA: FILE_APPEND path="notes/log.txt"]]\nline\n[[/SIDERA]]\n'
+                "[[SIDERA: FILE_LIST]]"
+            )
+            clean, operations, errors = parser.parse(text)
+            self.assertEqual(errors, [])
+            injections, controls = parser.execute_operations(operations, memory, sandbox, "LEFT", "SIDERA-0000001")
+            self.assertEqual((root / "files" / "notes" / "summary.md").read_text(encoding="utf-8"), "# Summary\nsecond version")
+            self.assertEqual((root / "files" / "notes" / "log.txt").read_text(encoding="utf-8"), "line")
+            self.assertIn("- notes/log.txt", injections[-1])
+            self.assertIn("- notes/summary.md", injections[-1])
+            # Escaping the folder is refused and reported, not executed.
+            _, ops2, _ = parser.parse('[[SIDERA: FILE_WRITE path="../outside.md"]]\nnope\n[[/SIDERA]]')
+            injections2, _ = parser.execute_operations(ops2, memory, sandbox, "LEFT", "SIDERA-0000002")
+            self.assertTrue(injections2 and "ERROR" in injections2[0])
+            self.assertFalse((root / "outside.md").exists())
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_short_aliases_map_to_canonical_operations(self):
         parser = TagParser()

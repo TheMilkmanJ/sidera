@@ -23,7 +23,7 @@ LEGACY_MEMORY_REGEX = re.compile(
     re.IGNORECASE,
 )
 
-BLOCK_OPERATIONS = ("MEMORY_WRITE", "MEMORY_READ", "FILE_APPEND", "FILE_READ")
+BLOCK_OPERATIONS = ("MEMORY_WRITE", "MEMORY_READ", "FILE_APPEND", "FILE_READ", "FILE_WRITE", "FILE_LIST")
 SINGLE_OPERATIONS = ("STOP", "PAUSE", "STATUS", "READY")
 
 # Short spellings accepted alongside the canonical names. SAVE writes a file
@@ -33,6 +33,8 @@ ALIASES = {
     "READ": "FILE_READ",
     "REMEMBER": "MEMORY_WRITE",
     "APPEND": "FILE_APPEND",
+    "WRITE": "FILE_WRITE",
+    "LIST": "FILE_LIST",
 }
 
 READY_WORD_REGEX = re.compile(r"^\W*ready\W*$", re.IGNORECASE)
@@ -109,7 +111,7 @@ class TagParser:
             }
             if op_name in SINGLE_OPERATIONS:
                 operations.append(op)
-            elif op_name in ("MEMORY_READ", "FILE_READ"):
+            elif op_name in ("MEMORY_READ", "FILE_READ", "FILE_LIST"):
                 # Reads carry no body, so the single form is a natural way to write them.
                 operations.append(op)
             elif op_name not in BLOCK_OPERATIONS:
@@ -187,6 +189,20 @@ class TagParser:
                         system_injections.append(
                             f"[SIDERA SYSTEM: File Content ({path})]\n{content}"
                         )
+                elif op_type == "FILE_WRITE":
+                    path = attrs.get("path")
+                    if not path:
+                        system_injections.append("[SIDERA SYSTEM ERROR: FILE_WRITE missing path]")
+                    else:
+                        file_sandbox.write_file(path, body)
+                elif op_type == "FILE_LIST":
+                    listed = file_sandbox.list_files(attrs.get("path", ""))
+                    if listed:
+                        system_injections.append(
+                            "[SIDERA SYSTEM: Files]\n" + "\n".join(f"- {name}" for name in listed)
+                        )
+                    else:
+                        system_injections.append("[SIDERA SYSTEM: No files found.]")
                 elif op_type == "PAUSE":
                     control_signals["pause"] = True
                     control_signals["reason"] = attrs.get("reason", "AI requested pause.")
