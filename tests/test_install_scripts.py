@@ -9,7 +9,7 @@ class TestInstallScripts(unittest.TestCase):
         ps1 = (ROOT / "setup_prerequisites.ps1").read_text(encoding="utf-8")
         bat = (ROOT / "INSTALL.bat").read_text(encoding="utf-8")
         self.assertIn("setup_prerequisites.ps1", bat)
-        self.assertIn("3.10", ps1)
+        self.assertIn("3.11", ps1)
         self.assertIn("Skipping install", ps1)
         self.assertLess(ps1.index("Skipping install"), ps1.index("winget install"))
 
