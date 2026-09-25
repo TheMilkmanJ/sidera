@@ -337,6 +337,25 @@ function makeContext() {
   assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 3);
 }
 
+// If the composer still holds the text after a submit attempt, the script asks
+// the background for a trusted Enter, and stops asking once the text is gone.
+{
+  const t = makeContext();
+  const composer = { tagName: "DIV", innerText: "pasted text", focused: 0, focus() { this.focused += 1; } };
+  t.ctx.SideraDom = { queryFirst: () => composer };
+  t.site.selectors = { composerTextarea: [".fake-composer"] };
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT" }, {}, () => {});
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "pasted text", message_id: "SIDERA-0000020" }, {}, () => {});
+  t.flushTimers(); // submit
+  t.flushTimers(); // first check: text still there
+  assert.strictEqual(t.sent.filter((m) => m.type === "TRUSTED_ENTER").length, 1);
+  assert.strictEqual(composer.focused, 1, "composer focused before the key press");
+  composer.innerText = "";
+  t.flushTimers(); // re-check: submitted, no further request
+  assert.strictEqual(t.sent.filter((m) => m.type === "TRUSTED_ENTER").length, 1);
+  assert.strictEqual(t.sent.filter((m) => m.type === "SUBMISSION_CONFIRMED").length, 1);
+}
+
 // A newer paired copy retires the older one.
 {
   const t = makeContext();

@@ -128,8 +128,42 @@ function broadcastStatus() {
   }).catch(() => {});
 }
 
+// Some sites (Gemini) ignore synthetic clicks and key events from a content
+// script and only submit on a trusted key press. The debugger protocol can
+// deliver one, so a content script asks for it here after filling the composer.
+const ENTER_KEY = { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 };
+
+async function pressTrustedEnter(tabId) {
+  const target = { tabId: tabId };
+  await chrome.debugger.attach(target, "1.3");
+  try {
+    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { type: "keyDown", text: "\r", unmodifiedText: "\r", ...ENTER_KEY });
+    await chrome.debugger.sendCommand(target, "Input.dispatchKeyEvent", { type: "keyUp", ...ENTER_KEY });
+  } finally {
+    try {
+      await chrome.debugger.detach(target);
+    } catch (err) {
+      // Already detached; nothing to clean up.
+    }
+  }
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const reqType = request.type;
+  if (reqType === "TRUSTED_ENTER") {
+    const tabId = sender.tab && sender.tab.id;
+    if (!tabId) {
+      sendResponse({ ok: false, error: "no tab" });
+      return false;
+    }
+    pressTrustedEnter(tabId)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        console.warn("Trusted Enter failed:", err && err.message ? err.message : err);
+        sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
+      });
+    return true;
+  }
   if (reqType === "GET_STATUS") {
     sendResponse({
       state: currentMediatorState,

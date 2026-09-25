@@ -9,7 +9,8 @@
     "activeTab",
     "storage",
     "scripting",
-    "nativeMessaging"
+    "nativeMessaging",
+    "debugger"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",

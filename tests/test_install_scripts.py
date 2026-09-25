@@ -33,6 +33,11 @@ class TestInstallScripts(unittest.TestCase):
         self.assertIn("chatgpt.com", vbs)
         self.assertIn("gemini.google.com", vbs)
         self.assertIn("--load-extension=", vbs)
+        # Trusted key presses go through chrome.debugger; this flag hides the infobar.
+        self.assertIn("--silent-debugger-extension-api", vbs)
+        import json
+        manifest = json.loads((ROOT / "chrome-extension" / "manifest.json").read_text(encoding="utf-8"))
+        self.assertIn("debugger", manifest["permissions"])
         self.assertNotIn("cmd.exe", vbs.lower())
         self.assertIn("python -u -m mediator.main", host)
         self.assertIn("PYTHONUNBUFFERED=1", host)

@@ -376,6 +376,7 @@
 
     setTimeout(() => {
       const submitted = site.submitComposer();
+      setTimeout(() => ensureSubmitted(site, 0), 1500);
       if (quiet) return;
       if (!submitted) {
         chrome.runtime.sendMessage({
@@ -392,6 +393,42 @@
         message_id: messageId,
       });
     }, 200);
+  }
+
+  // Gemini ignores synthetic clicks and key events, so if the text is still
+  // sitting in the composer after a submit attempt, ask the background for a
+  // trusted Enter key press (delivered through the debugger protocol).
+  const SUBMIT_RETRIES = 3;
+
+  function composerElement(site) {
+    if (typeof SideraDom === "undefined" || !site.selectors || !site.selectors.composerTextarea) return null;
+    return SideraDom.queryFirst(site.selectors.composerTextarea, { visible: true });
+  }
+
+  function composerHasText(site) {
+    const el = composerElement(site);
+    if (!el) return false;
+    const tag = (el.tagName || "").toLowerCase();
+    const value = tag === "textarea" || tag === "input" ? el.value : el.innerText;
+    return !!(value || "").trim();
+  }
+
+  function ensureSubmitted(site, attempt) {
+    if (!composerHasText(site)) return;
+    if (attempt >= SUBMIT_RETRIES) {
+      console.warn(`[Sidera ${hemisphere}] Composer still holds text after ${SUBMIT_RETRIES} trusted Enter attempts.`);
+      return;
+    }
+    const el = composerElement(site);
+    if (el) el.focus();
+    try {
+      chrome.runtime.sendMessage({ type: "TRUSTED_ENTER", hemisphere: hemisphere }, () => {
+        void (chrome.runtime && chrome.runtime.lastError);
+      });
+    } catch (err) {
+      // No background available (e.g. a test harness); nothing more to try here.
+    }
+    setTimeout(() => ensureSubmitted(site, attempt + 1), 2500);
   }
 
   function noteActivity() {

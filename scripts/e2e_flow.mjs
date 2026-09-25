@@ -205,26 +205,42 @@ async function deliver(message) {
 }
 
 async function drainRetired() {
-  const packets = [];
   for (const side of ["LEFT", "RIGHT"]) {
     for (const old of retiredBridges[side]) {
       try {
-        packets.push(...(await withTimeout(old.drain(), 1500)));
+        await routePackets(side, await withTimeout(old.drain(), 1500));
       } catch (err) {
         // A destroyed world simply has nothing left to give.
       }
     }
   }
-  return packets;
+}
+
+// The content script asks its background for a trusted Enter when a site
+// ignores synthetic submits; here the harness plays the background's part.
+async function pressTrustedEnter(side) {
+  const page = side === "RIGHT" ? gemini : chatgpt;
+  try {
+    await page.keyboard.press("Enter");
+  } catch (err) {
+    console.error(`trusted Enter failed for ${side}: ${err.message}`);
+  }
+}
+
+async function routePackets(side, packets) {
+  for (const packet of packets) {
+    if (packet.type === "TRUSTED_ENTER") {
+      await pressTrustedEnter(side);
+    } else {
+      send(packet);
+    }
+  }
 }
 
 async function pumpBridges() {
-  const packets = [
-    ...(await withTimeout(bridges.LEFT.drain(), 4000)),
-    ...(await withTimeout(bridges.RIGHT.drain(), 4000)),
-    ...(await drainRetired()),
-  ];
-  for (const packet of packets) send(packet);
+  await routePackets("LEFT", await withTimeout(bridges.LEFT.drain(), 4000));
+  await routePackets("RIGHT", await withTimeout(bridges.RIGHT.drain(), 4000));
+  await drainRetired();
 }
 
 send({ type: "START", initial_hemisphere: "LEFT" });
@@ -310,15 +326,10 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
   } catch (err) {
     console.error(`rebind skipped: ${err.message}`);
   }
-  let packets = [];
   try {
     await withTimeout(bridges.LEFT.note(), 4000);
     await withTimeout(bridges.RIGHT.note(), 4000);
-    packets = [
-      ...(await withTimeout(bridges.LEFT.drain(), 4000)),
-      ...(await withTimeout(bridges.RIGHT.drain(), 4000)),
-      ...(await drainRetired()),
-    ];
+    await pumpBridges();
   } catch (err) {
     try {
       await withTimeout(rebind("LEFT", chatgpt, !submits.some((message) => message.destination === "LEFT")), 8000);
@@ -326,9 +337,6 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
     } catch (rebindErr) {
       console.error(`rebind skipped: ${rebindErr.message}`);
     }
-  }
-  for (const packet of packets) {
-    send(packet);
   }
   while (incoming.length) {
     const message = incoming.shift();
