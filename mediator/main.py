@@ -241,6 +241,10 @@ class MediatorService:
             ) or (
                 source == "RIGHT" and self.state_machine.state == MediatorState.SEND_RIGHT
             )
+            if awaiting_confirmation and self.ledger.is_duplicate(raw_content, source):
+                # A re-capture of that side's previous reply proves nothing.
+                logger.info("Stale reply from %s while its paste is unconfirmed; ignored", source)
+                return
             if awaiting_confirmation and self.state_machine.current_message_id:
                 # The side we pasted into has answered, so the paste was delivered
                 # even though its confirmation never reached us.

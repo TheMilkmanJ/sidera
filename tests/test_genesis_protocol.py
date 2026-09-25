@@ -121,14 +121,23 @@ class GenesisProtocolTests(unittest.TestCase):
         service = self.make_service(genesis_enabled=False)
         service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
         service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "Opening thought. Agree?"})
+        service.handle_message({"type": "SUBMISSION_CONFIRMED", "destination": "RIGHT", "message_id": "SIDERA-0000001"})
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "First answer from RIGHT."})
+        service.handle_message({"type": "SUBMISSION_CONFIRMED", "destination": "LEFT", "message_id": "SIDERA-0000002"})
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "Second thought from LEFT."})
         self.assertEqual(service.state_machine.state, MediatorState.SEND_RIGHT)
-        # No SUBMISSION_CONFIRMED arrives, but RIGHT answers anyway.
-        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "I agree, and here is why."})
+
+        # A stale re-capture of RIGHT's previous reply proves nothing.
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "First answer from RIGHT."})
+        self.assertEqual(service.state_machine.state, MediatorState.SEND_RIGHT)
+        self.assertEqual(len(self.submits()), 3)
+
+        # No SUBMISSION_CONFIRMED for SIDERA-0000003 arrives, but RIGHT answers it.
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "Second answer from RIGHT."})
         self.assertEqual(service.state_machine.state, MediatorState.SEND_LEFT)
-        ids = [p["message_id"] for p in self.submits()]
-        self.assertEqual(ids, ["SIDERA-0000001", "SIDERA-0000002"])
-        self.assertEqual(self.submits()[1]["destination"], "LEFT")
-        self.assertEqual(service.ledger.get_message("SIDERA-0000001")["status"], "ACKNOWLEDGED")
+        self.assertEqual([p["message_id"] for p in self.submits()], ["SIDERA-0000001", "SIDERA-0000002", "SIDERA-0000003", "SIDERA-0000004"])
+        self.assertEqual(self.submits()[3]["destination"], "LEFT")
+        self.assertEqual(service.ledger.get_message("SIDERA-0000003")["status"], "ACKNOWLEDGED")
 
     def test_genesis_can_be_switched_off(self):
         service = self.make_service(genesis_enabled=False)
