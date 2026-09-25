@@ -158,6 +158,11 @@ await right.assign("RIGHT");
 
 const urls = { LEFT: chatgpt.url(), RIGHT: gemini.url() };
 const bridges = { LEFT: left, RIGHT: right };
+// A replaced script copy may still queue packets (a paste it scheduled
+// before being replaced), so recent copies keep being drained for a while.
+const retiredBridges = { LEFT: [], RIGHT: [] };
+const RETIRED_KEEP = 4;
+
 const GENESIS_PREFIX = "GENESIS-";
 const genesisDelivered = [];
 
@@ -199,10 +204,25 @@ async function deliver(message) {
   }
 }
 
+async function drainRetired() {
+  const packets = [];
+  for (const side of ["LEFT", "RIGHT"]) {
+    for (const old of retiredBridges[side]) {
+      try {
+        packets.push(...(await withTimeout(old.drain(), 1500)));
+      } catch (err) {
+        // A destroyed world simply has nothing left to give.
+      }
+    }
+  }
+  return packets;
+}
+
 async function pumpBridges() {
   const packets = [
     ...(await withTimeout(bridges.LEFT.drain(), 4000)),
     ...(await withTimeout(bridges.RIGHT.drain(), 4000)),
+    ...(await drainRetired()),
   ];
   for (const packet of packets) send(packet);
 }
@@ -245,6 +265,8 @@ if (!sent.ok) throw new Error(`ChatGPT send failed: ${sent.error} ${sent.text ||
 async function rebind(which, page, baseline = true) {
   const bridge = await bootPage(page, `sidera-${which}-${Date.now()}`);
   await bridge.assign(which, baseline);
+  retiredBridges[which].push(bridges[which]);
+  while (retiredBridges[which].length > RETIRED_KEEP) retiredBridges[which].shift();
   bridges[which] = bridge;
   urls[which] = page.url();
   await page.evaluate(() => {
@@ -282,6 +304,7 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
     packets = [
       ...(await withTimeout(bridges.LEFT.drain(), 4000)),
       ...(await withTimeout(bridges.RIGHT.drain(), 4000)),
+      ...(await drainRetired()),
     ];
   } catch (err) {
     try {

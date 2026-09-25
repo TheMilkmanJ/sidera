@@ -117,6 +117,19 @@ class GenesisProtocolTests(unittest.TestCase):
         self.assertEqual(self.submits(), [])
         self.assertEqual(service.state_machine.state, MediatorState.WAIT_LEFT)
 
+    def test_reply_from_destination_confirms_an_unconfirmed_paste(self):
+        service = self.make_service(genesis_enabled=False)
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "Opening thought. Agree?"})
+        self.assertEqual(service.state_machine.state, MediatorState.SEND_RIGHT)
+        # No SUBMISSION_CONFIRMED arrives, but RIGHT answers anyway.
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "I agree, and here is why."})
+        self.assertEqual(service.state_machine.state, MediatorState.SEND_LEFT)
+        ids = [p["message_id"] for p in self.submits()]
+        self.assertEqual(ids, ["SIDERA-0000001", "SIDERA-0000002"])
+        self.assertEqual(self.submits()[1]["destination"], "LEFT")
+        self.assertEqual(service.ledger.get_message("SIDERA-0000001")["status"], "ACKNOWLEDGED")
+
     def test_genesis_can_be_switched_off(self):
         service = self.make_service(genesis_enabled=False)
         service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})

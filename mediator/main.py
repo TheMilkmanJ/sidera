@@ -236,6 +236,24 @@ class MediatorService:
                 # restarted and re-taught) is an acknowledgement, not a turn.
                 logger.info("READY acknowledgement from %s noted; not forwarded", source)
                 return
+            awaiting_confirmation = (
+                source == "LEFT" and self.state_machine.state == MediatorState.SEND_LEFT
+            ) or (
+                source == "RIGHT" and self.state_machine.state == MediatorState.SEND_RIGHT
+            )
+            if awaiting_confirmation and self.state_machine.current_message_id:
+                # The side we pasted into has answered, so the paste was delivered
+                # even though its confirmation never reached us.
+                logger.warning(
+                    "Reply from %s arrived before the paste of %s was confirmed; treating it as delivered",
+                    source,
+                    self.state_machine.current_message_id,
+                )
+                self.handle_message({
+                    "type": "SUBMISSION_CONFIRMED",
+                    "destination": source,
+                    "message_id": self.state_machine.current_message_id,
+                })
             waiting_for_source = (
                 source == "LEFT" and self.state_machine.state in (MediatorState.WAIT_LEFT, MediatorState.IDLE)
             ) or (
