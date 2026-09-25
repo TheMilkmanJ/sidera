@@ -13,6 +13,12 @@ data_root = "data"
 # extension popup while running.
 max_autonomous_turns = 50
 
+# Very long single chats are where ChatGPT, Grok and Gemini start hanging or
+# returning errors. After this many pastes into one chat, a side opens a fresh
+# chat, is re-taught the protocol and is caught up from saved memory and the
+# last few turns before it continues.
+rotate_after_pastes = 50
+
 # false = monitoring and logging only. Replies are still captured, tags are
 # still executed and everything is logged, but nothing is ever pasted into a
 # chat. Use this to observe the browsers safely or to test a new adapter.

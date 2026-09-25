@@ -210,6 +210,7 @@ function makeContext() {
   t.ctx.__sideraHeartbeat();
   assert.strictEqual(t.site.newChats, 1, "second failure: new chat");
   assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 0, "error still not forwarded");
+  t.flushTimers(); // brief request times out (no background in this test)
   t.flushTimers();
   t.flushTimers();
   assert.strictEqual(t.site.submits, 3, "message pasted into the new chat");
@@ -239,6 +240,7 @@ function makeContext() {
   t.ctx.document.documentElement.dataset.sideraPasteCount = "50";
   t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "the 51st message", message_id: "SIDERA-0000101" }, {}, () => {});
   assert.strictEqual(t.site.newChats, 1, "51st paste opens a new chat first");
+  t.flushTimers(); // brief request times out
   t.flushTimers();
   t.flushTimers();
   assert.strictEqual(t.site.composer, "the 51st message");
@@ -258,6 +260,7 @@ function makeContext() {
   t.ctx.document.documentElement.dataset.sideraPasteCount = "50";
   t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "message fifty-one", message_id: "SIDERA-0000151" }, {}, () => {});
   assert.strictEqual(t.site.newChats, 1);
+  t.flushTimers(); // brief request times out
   t.flushTimers();
   t.flushTimers();
   assert.strictEqual(t.site.composer, genesis, "protocol is pasted before the message");
@@ -279,6 +282,68 @@ function makeContext() {
   const captured = t.sent.filter((m) => m.type === "RESPONSE_CAPTURED");
   assert.strictEqual(captured.length, 1);
   assert.strictEqual(captured[0].content, t.site.latest);
+}
+
+// A fresh chat asks the mediator for a catch-up brief and pastes it ahead of
+// the pending message (after the Genesis READY); without a reply it carries on
+// after the timeout with the message alone.
+{
+  const t = makeContext();
+  t.site.newChats = 0;
+  t.site.startNewChat = function () { this.newChats += 1; this.latest = ""; return true; };
+  const genesis = "[SIDERA GENESIS PROTOCOL]\nReply now with exactly one word and nothing else: READY";
+  // Let the fake chrome.runtime answer CONTEXT_REQUEST like the background would.
+  t.ctx.chrome.runtime.sendMessage = (m, cb) => { t.sent.push(m); if (m.type === "CONTEXT_REQUEST" && cb) cb({ text: "[SIDERA SYSTEM: Context restored for a fresh chat]\n- [MEM-000001 decisions/default] Use Galinstan." }); };
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT", genesis }, {}, () => {});
+  t.ctx.document.documentElement.dataset.sideraPasteCount = "50";
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "message fifty-one", message_id: "SIDERA-0000151" }, {}, () => {});
+  assert.strictEqual(t.site.newChats, 1);
+  assert.strictEqual(t.sent.filter((m) => m.type === "CONTEXT_REQUEST" && m.hemisphere === "RIGHT").length, 1, "brief requested for the fresh chat");
+  t.flushTimers();
+  t.flushTimers();
+  assert.strictEqual(t.site.composer, genesis, "protocol first");
+  t.site.latest = "READY";
+  t.advance(20000);
+  t.ctx.__sideraHeartbeat();
+  t.flushTimers();
+  t.flushTimers();
+  assert.ok(t.site.composer.startsWith("[SIDERA SYSTEM: Context restored for a fresh chat]"), t.site.composer);
+  assert.ok(t.site.composer.endsWith("\n\nmessage fifty-one"), "pending message follows the brief");
+  assert.strictEqual(t.sent.filter((m) => m.type === "SUBMISSION_CONFIRMED" && m.message_id === "SIDERA-0000151").length, 1);
+}
+
+{
+  const t = makeContext();
+  t.site.startNewChat = function () { this.latest = ""; return true; };
+  // Background never answers: the timeout fires and the message goes in alone.
+  t.ctx.chrome.runtime.sendMessage = (m) => { t.sent.push(m); };
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "LEFT" }, {}, () => {});
+  t.ctx.document.documentElement.dataset.sideraPasteCount = "50";
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "still going", message_id: "SIDERA-0000152" }, {}, () => {});
+  t.flushTimers(); // brief timeout
+  t.flushTimers(); // settle -> paste
+  t.flushTimers(); // submit
+  assert.strictEqual(t.site.composer, "still going");
+  assert.strictEqual(t.sent.filter((m) => m.type === "SUBMISSION_CONFIRMED" && m.message_id === "SIDERA-0000152").length, 1);
+}
+
+// The rotation threshold follows the settings the mediator sends.
+{
+  const t = makeContext();
+  t.site.newChats = 0;
+  t.site.startNewChat = function () { this.newChats += 1; return true; };
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "LEFT", settings: { rotate_after_pastes: 2 } }, {}, () => {});
+  for (let i = 1; i <= 3; i++) {
+    t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: `m${i}`, message_id: `SIDERA-000020${i}` }, {}, () => {});
+    for (let k = 0; k < 4; k++) t.flushTimers();
+  }
+  assert.strictEqual(t.site.newChats, 1, "third paste rotates when the threshold is 2");
+  t.ctx.__in({ type: "SET_SETTINGS", settings: { rotate_after_pastes: 100 } }, {}, () => {});
+  for (let i = 4; i <= 8; i++) {
+    t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: `m${i}`, message_id: `SIDERA-000020${i}` }, {}, () => {});
+    for (let k = 0; k < 4; k++) t.flushTimers();
+  }
+  assert.strictEqual(t.site.newChats, 1, "raised threshold: no further rotation");
 }
 
 // SET_GENESIS can arrive after pairing.

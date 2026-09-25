@@ -216,6 +216,21 @@ class MessageLedger:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def get_recent_messages(self, conversation_id: Optional[str] = None, limit: int = 6) -> List[Dict]:
+        """The newest `limit` messages, oldest first."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if conversation_id:
+                cursor.execute(
+                    "SELECT * FROM messages WHERE conversation_id = ? ORDER BY message_id DESC LIMIT ?",
+                    (conversation_id, limit),
+                )
+            else:
+                cursor.execute("SELECT * FROM messages ORDER BY message_id DESC LIMIT ?", (limit,))
+            rows = [dict(row) for row in cursor.fetchall()]
+            rows.reverse()
+            return rows
+
     def get_last_message(self, conversation_id: Optional[str] = None) -> Optional[Dict]:
         with self._get_connection() as conn:
             cursor = conn.cursor()

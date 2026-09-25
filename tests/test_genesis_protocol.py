@@ -58,7 +58,7 @@ class GenesisProtocolTests(unittest.TestCase):
         service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
 
         self.assertEqual(service.state_machine.state, MediatorState.IDLE)
-        self.assertEqual([p["type"] for p in self.sent][:2], ["GENESIS_TEXT", "SUBMIT_MESSAGE"])
+        self.assertEqual([p["type"] for p in self.sent][:3], ["SETTINGS", "GENESIS_TEXT", "SUBMIT_MESSAGE"])
         first = self.submits()[0]
         self.assertEqual(first["destination"], "LEFT")
         self.assertEqual(first["message_id"], "GENESIS-LEFT")

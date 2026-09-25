@@ -60,9 +60,13 @@ async function bootPage(page, worldName) {
     return result.result.value;
   }
   await evaluate(`globalThis.chrome = { runtime: {
-    sendMessage(message) {
+    sendMessage(message, callback) {
       globalThis.__captured = globalThis.__captured || [];
       globalThis.__captured.push(message);
+      if (typeof callback === "function") {
+        globalThis.__callbacks = globalThis.__callbacks || {};
+        (globalThis.__callbacks[message.type] = globalThis.__callbacks[message.type] || []).push(callback);
+      }
     },
     onMessage: { addListener(fn) { globalThis.__sideraIn = fn; } }
   }};`);
@@ -71,7 +75,7 @@ async function bootPage(page, worldName) {
   }
   return {
     async assign(hemisphere, baseline = true) {
-      return evaluate(`new Promise((resolve) => globalThis.__sideraIn({ type: "ASSIGN_HEMISPHERE", hemisphere: ${JSON.stringify(hemisphere)}, baseline: ${baseline}, genesis: ${JSON.stringify(genesisTextForTabs)} }, {}, resolve))`);
+      return evaluate(`new Promise((resolve) => globalThis.__sideraIn({ type: "ASSIGN_HEMISPHERE", hemisphere: ${JSON.stringify(hemisphere)}, baseline: ${baseline}, genesis: ${JSON.stringify(genesisTextForTabs)}, settings: ${JSON.stringify(settingsForTabs)} }, {}, resolve))`);
     },
     async inject(text, messageId) {
       return evaluate(`new Promise((resolve) => globalThis.__sideraIn({ type: "INJECT_AND_SUBMIT", text: ${JSON.stringify(text)}, message_id: ${JSON.stringify(messageId)} }, {}, resolve))`);
@@ -81,6 +85,10 @@ async function bootPage(page, worldName) {
     },
     async note() {
       return evaluate(`(() => { if (globalThis.__sideraNote) globalThis.__sideraNote(); return true; })()`);
+    },
+    // Answer a chrome.runtime.sendMessage callback the content script is waiting on.
+    async deliver(type, payload) {
+      return evaluate(`(() => { const list = (globalThis.__callbacks && globalThis.__callbacks[${JSON.stringify(type)}]) || []; const taken = list.splice(0); taken.forEach((cb) => { try { cb(${JSON.stringify(payload)}); } catch (err) {} }); return taken.length; })()`);
     },
   };
 }
@@ -130,8 +138,13 @@ const host = spawn("python3", ["-u", path.join(root, "scripts/e2e_host.py")], {
 });
 const incoming = [];
 let genesisTextForTabs = "";
+let settingsForTabs = {};
 attachReader(host.stdout, (message) => {
   if (message.type === "GENESIS_TEXT") genesisTextForTabs = message.text || "";
+  if (message.type === "SETTINGS") {
+    const { type: _ignored, ...settings } = message;
+    settingsForTabs = settings;
+  }
   incoming.push(message);
 });
 function send(message) {
@@ -367,6 +380,17 @@ while (Date.now() < deadline && submits.length < TURN_GOAL && !error) {
       } catch (err) {
         // The watchdog re-binds and retries; one failed paste must not end the run.
         console.error(`deliver failed for ${message.message_id}: ${err.message}`);
+      }
+    }
+    if (message.type === "CONTEXT_BRIEF") {
+      const side = message.hemisphere;
+      console.error(`context brief -> ${side} (${(message.text || "").length} chars)`);
+      for (const bridge of [bridges[side], ...retiredBridges[side]]) {
+        try {
+          if (await withTimeout(bridge.deliver("CONTEXT_REQUEST", { text: message.text || "" }), 3000)) break;
+        } catch (err) {
+          // that copy is gone; try the next
+        }
       }
     }
     if (message.type === "STATE_UPDATE" && message.state === "ERROR") {

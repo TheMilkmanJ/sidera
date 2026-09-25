@@ -10,6 +10,11 @@ let autonomousSubmissions = true;
 // Genesis Protocol text from the mediator; a tab that starts a fresh chat
 // re-teaches it before continuing.
 let genesisText = "";
+// Tuning from config.toml that content scripts need (e.g. rotate_after_pastes).
+let contentSettings = {};
+// Content scripts waiting for a catch-up brief (CONTEXT_REQUEST -> CONTEXT_BRIEF).
+const briefWaiters = { LEFT: [], RIGHT: [] };
+const BRIEF_TIMEOUT_MS = 8000;
 
 const slotRegistry = {
   LEFT: { adapter: "chatgpt", tabId: null },
@@ -23,6 +28,7 @@ function persistSession() {
     currentTurnCount: currentTurnCount,
     lastMessageId: lastMessageId,
     genesisText: genesisText,
+    contentSettings: contentSettings,
   }).catch(() => {});
 }
 
@@ -32,6 +38,7 @@ function assignTab(tabId, slotId, adapterType, callback) {
     hemisphere: slotId,
     adapterType: adapterType,
     genesis: genesisText,
+    settings: contentSettings,
   }, callback);
 }
 
@@ -92,6 +99,26 @@ function handleMediatorMessage(msg) {
     if (typeof msg.autonomous_submissions === "boolean") autonomousSubmissions = msg.autonomous_submissions;
     persistSession();
     broadcastStatus();
+  } else if (type === "CONTEXT_BRIEF") {
+    const side = (msg.hemisphere || "").toUpperCase();
+    const waiters = briefWaiters[side] || [];
+    briefWaiters[side] = [];
+    for (const waiter of waiters) {
+      clearTimeout(waiter.timer);
+      waiter.respond({ text: msg.text || "" });
+    }
+  } else if (type === "SETTINGS") {
+    const { type: _ignored, ...settings } = msg;
+    contentSettings = settings;
+    persistSession();
+    for (const slotId of Object.keys(slotRegistry)) {
+      const slot = slotRegistry[slotId];
+      if (slot && slot.tabId) {
+        chrome.tabs.sendMessage(slot.tabId, { type: "SET_SETTINGS", settings: contentSettings }, () => {
+          void chrome.runtime.lastError;
+        });
+      }
+    }
   } else if (type === "GENESIS_TEXT") {
     genesisText = msg.text || "";
     persistSession();
@@ -203,6 +230,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     return true;
   }
+  if (reqType === "CONTEXT_REQUEST") {
+    const side = (request.hemisphere || "").toUpperCase();
+    if (!briefWaiters[side]) {
+      sendResponse({ text: "" });
+      return false;
+    }
+    const waiter = { respond: sendResponse, timer: null };
+    waiter.timer = setTimeout(() => {
+      briefWaiters[side] = briefWaiters[side].filter((w) => w !== waiter);
+      sendResponse({ text: "" });
+    }, BRIEF_TIMEOUT_MS);
+    briefWaiters[side].push(waiter);
+    sendToMediator({ type: "CONTEXT_REQUEST", hemisphere: side });
+    return true;
+  }
   if (reqType === "GET_STATUS") {
     sendToMediator({ type: "GET_STATUS" });
     sendResponse(statusSnapshot());
@@ -249,13 +291,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 chrome.storage.session.get(
-  ["slotRegistry", "currentMediatorState", "currentTurnCount", "lastMessageId", "genesisText"],
+  ["slotRegistry", "currentMediatorState", "currentTurnCount", "lastMessageId", "genesisText", "contentSettings"],
   (data) => {
     if (data && data.slotRegistry) {
       if (data.slotRegistry.LEFT) slotRegistry.LEFT = data.slotRegistry.LEFT;
       if (data.slotRegistry.RIGHT) slotRegistry.RIGHT = data.slotRegistry.RIGHT;
     }
     if (data && typeof data.genesisText === "string") genesisText = data.genesisText;
+    if (data && data.contentSettings && typeof data.contentSettings === "object") contentSettings = data.contentSettings;
     if (data && data.currentMediatorState) currentMediatorState = data.currentMediatorState;
     if (data && typeof data.currentTurnCount === "number") currentTurnCount = data.currentTurnCount;
     if (data && data.lastMessageId) lastMessageId = data.lastMessageId;

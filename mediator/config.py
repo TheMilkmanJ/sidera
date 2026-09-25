@@ -30,6 +30,9 @@ class MediatorConfig:
     max_autonomous_turns: int = 50
     # False = monitor and log only; nothing is ever pasted into a chat.
     autonomous_submissions: bool = True
+    # A side moves to a fresh chat (and is caught up from memory) after this
+    # many pastes into one chat; long single chats are where the sites degrade.
+    rotate_after_pastes: int = 50
     genesis_enabled: bool = True
     genesis_prompt_file: Path = INSTALL_ROOT / "mediator" / "genesis_protocol.md"
     log_level: str = "INFO"
@@ -78,6 +81,7 @@ def load_config(path: Optional[Path] = None) -> MediatorConfig:
     config.data_root = _resolve(base, mediator.get("data_root"), config.data_root)
     config.max_autonomous_turns = int(mediator.get("max_autonomous_turns", config.max_autonomous_turns))
     config.autonomous_submissions = _as_bool(mediator.get("autonomous_submissions"), config.autonomous_submissions)
+    config.rotate_after_pastes = int(mediator.get("rotate_after_pastes", config.rotate_after_pastes))
     config.genesis_enabled = _as_bool(genesis.get("enabled"), config.genesis_enabled)
     config.genesis_prompt_file = _resolve(base, genesis.get("prompt_file"), config.genesis_prompt_file)
     config.log_level = str(logging_section.get("level", config.log_level)).upper()

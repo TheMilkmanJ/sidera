@@ -168,6 +168,49 @@ class PauseAfterCurrentTurn(ServiceTestCase):
         self.assertEqual(len(self.submits()), 1)
 
 
+class FreshChatCatchUp(ServiceTestCase):
+    def test_brief_contains_memories_and_recent_turns_for_that_side(self):
+        service = self.make_service()
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        self.run_turn(service, "LEFT",
+                      'We should use Galinstan.\n[[SIDERA:MEMORY_WRITE category="decisions" project="gyrocell"]]\nWorking fluid: Galinstan, not NaK.\n[[/SIDERA]]',
+                      "SIDERA-0000001")
+        self.run_turn(service, "RIGHT", "Agreed; next is the containment vessel.", "SIDERA-0000002")
+        service.handle_message({"type": "CONTEXT_REQUEST", "hemisphere": "RIGHT"})
+        briefs = [p for p in self.sent if p["type"] == "CONTEXT_BRIEF"]
+        self.assertEqual(len(briefs), 1)
+        self.assertEqual(briefs[0]["hemisphere"], "RIGHT")
+        text = briefs[0]["text"]
+        self.assertTrue(text.startswith("[SIDERA SYSTEM: Context restored for a fresh chat]"))
+        self.assertIn("You are RIGHT, continuing an ongoing conversation with another AI (LEFT)", text)
+        self.assertIn("[MEM-000001 decisions/gyrocell] Working fluid: Galinstan, not NaK.", text)
+        self.assertIn("LEFT (LEFT): We should use Galinstan.", text)
+        self.assertIn("RIGHT (you): Agreed; next is the containment vessel.", text)
+        self.assertNotIn("[[SIDERA:", text, "tags are not repeated back")
+        self.assertTrue(text.endswith("Reply to the message that follows as your next turn."))
+        transcript = "\n".join(p.read_text(encoding="utf-8") for p in (self.root / "transcripts").glob("*.md"))
+        self.assertIn("`RIGHT` caught up with 1 memories and 2 recent turns", transcript)
+
+    def test_brief_is_bounded_and_works_with_no_history(self):
+        service = self.make_service()
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        service.handle_message({"type": "CONTEXT_REQUEST", "hemisphere": "LEFT"})
+        empty = [p for p in self.sent if p["type"] == "CONTEXT_BRIEF"][0]["text"]
+        self.assertIn("Context restored", empty)
+        self.assertNotIn("Saved memories", empty)
+        # Lots of long turns: only the last few, each truncated, total capped.
+        for i in range(12):
+            source = "LEFT" if i % 2 == 0 else "RIGHT"
+            self.run_turn(service, source, f"Turn {i} " + ("words " * 300), f"SIDERA-{i + 1:07d}")
+        service.handle_message({"type": "CONTEXT_REQUEST", "hemisphere": "LEFT"})
+        text = [p for p in self.sent if p["type"] == "CONTEXT_BRIEF"][-1]["text"]
+        self.assertIn("last 6 turns", text)
+        self.assertNotIn("Turn 5 ", text)
+        self.assertIn("Turn 11 ", text)
+        self.assertLessEqual(len(text), MediatorService.BRIEF_MAX_CHARS)
+        self.assertIn("…", text)
+
+
 class MonitorOnly(ServiceTestCase):
     def test_disabled_submissions_never_paste(self):
         service = self.make_service(autonomous_submissions=False)
@@ -213,6 +256,24 @@ class ConfigLoading(unittest.TestCase):
             self.assertFalse(config.autonomous_submissions)
             self.assertFalse(config.genesis_enabled)
             self.assertEqual(config.data_root, elsewhere, "absolute data_root is used as given")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_rotate_after_pastes_is_read_and_sent_to_the_extension(self):
+        tmp = Path(tempfile.mkdtemp(prefix="sidera-rotate-"))
+        try:
+            (tmp / "config.toml").write_text('[mediator]\nrotate_after_pastes = 7\n', encoding="utf-8")
+            config = load_config(tmp / "config.toml")
+            self.assertEqual(config.rotate_after_pastes, 7)
+            config.data_root = tmp / "data"
+            config.genesis_enabled = False
+            service = MediatorService(config=config)
+            sent = []
+            service.ipc.send_message = lambda packet: sent.append(packet)
+            service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+            settings = [p for p in sent if p["type"] == "SETTINGS"]
+            self.assertEqual(len(settings), 1)
+            self.assertEqual(settings[0]["rotate_after_pastes"], 7)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

@@ -290,6 +290,49 @@ class MediatorService:
         logger.info("Resuming: pasting %s into %s again", message_id, dest)
         self._submit(dest, message_id, self._attach_system_blocks(dest, text))
 
+    # --- catch-up brief for a fresh chat --------------------------------------------
+
+    BRIEF_MAX_MEMORIES = 15
+    BRIEF_MAX_TURNS = 6
+    BRIEF_TURN_CHARS = 400
+    BRIEF_MAX_CHARS = 6000
+
+    def build_context_brief(self, hemisphere: str) -> str:
+        """What a side needs to continue after its chat window was replaced.
+
+        Deterministic and bounded: the most recent saved memories and the last
+        few routed turns, in a clearly marked Sidera system block.
+        """
+        other = "RIGHT" if hemisphere == "LEFT" else "LEFT"
+        lines = [
+            "[SIDERA SYSTEM: Context restored for a fresh chat]",
+            f"You are {hemisphere}, continuing an ongoing conversation with another AI ({other}). "
+            "Your previous chat window was replaced; the conversation itself continues unchanged.",
+        ]
+        memories = self.memory.read_memory(limit=self.BRIEF_MAX_MEMORIES)
+        if memories:
+            lines.append("")
+            lines.append(f"Saved memories (newest first, {len(memories)} shown):")
+            for record in memories:
+                content = " ".join(str(record.get("content", "")).split())
+                lines.append(f"- [{record.get('id')} {record.get('category')}/{record.get('project')}] {content}")
+        recent = self.ledger.get_recent_messages(self.conversation_id, limit=self.BRIEF_MAX_TURNS)
+        if recent:
+            lines.append("")
+            lines.append(f"Recent exchange (last {len(recent)} turns, oldest first):")
+            for record in recent:
+                text = " ".join(str(record.get("clean_content") or record.get("content") or "").split())
+                if len(text) > self.BRIEF_TURN_CHARS:
+                    text = text[: self.BRIEF_TURN_CHARS - 1].rstrip() + "…"
+                who = "you" if record.get("source") == hemisphere else other
+                lines.append(f"- {record.get('source')} ({who}): {text}")
+        lines.append("")
+        lines.append("Reply to the message that follows as your next turn.")
+        brief = "\n".join(lines)
+        if len(brief) > self.BRIEF_MAX_CHARS:
+            brief = brief[: self.BRIEF_MAX_CHARS - 1].rstrip() + "…"
+        return brief
+
     def _open_path(self, path: Path) -> bool:
         """Open a folder or file with the desktop's default handler (spec 10)."""
         try:
@@ -331,6 +374,10 @@ class MediatorService:
 
         elif msg_type == "START":
             initial_side = packet.get("initial_hemisphere", "LEFT").upper()
+            self.ipc.send_message({
+                "type": "SETTINGS",
+                "rotate_after_pastes": self.config.rotate_after_pastes,
+            })
             if self.genesis_enabled and self.genesis_prompt:
                 self._begin_genesis(initial_side)
             else:
@@ -380,6 +427,22 @@ class MediatorService:
             logger.info("Maximum autonomous turns set to %s", value)
             self._write_transcript_line(f"- **Setting:** maximum autonomous turns set to `{value}`\n")
             self._broadcast_state_change(self.state_machine.state, {"max_turns": value})
+
+        elif msg_type == "CONTEXT_REQUEST":
+            # A side opened a fresh chat and wants to be caught up before it
+            # continues (memories + recent turns).
+            hemisphere = (packet.get("hemisphere") or "").upper()
+            if hemisphere not in ("LEFT", "RIGHT"):
+                logger.warning("CONTEXT_REQUEST ignored: hemisphere=%r", packet.get("hemisphere"))
+                return
+            brief = self.build_context_brief(hemisphere)
+            memories = self.memory.read_memory(limit=self.BRIEF_MAX_MEMORIES)
+            recent = self.ledger.get_recent_messages(self.conversation_id, limit=self.BRIEF_MAX_TURNS)
+            logger.info("CONTEXT_BRIEF for %s: %s memories, %s recent turns, %s chars", hemisphere, len(memories), len(recent), len(brief))
+            self._write_transcript_line(
+                f"- **Fresh chat:** `{hemisphere}` caught up with {len(memories)} memories and {len(recent)} recent turns\n"
+            )
+            self.ipc.send_message({"type": "CONTEXT_BRIEF", "hemisphere": hemisphere, "text": brief})
 
         elif msg_type == "OPEN_DATA_FOLDER":
             self._open_path(self.root_dir)

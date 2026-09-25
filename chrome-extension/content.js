@@ -59,6 +59,17 @@
   const ROTATE_AFTER_PASTES = 50;
   const NEW_CHAT_SETTLE_MS = 4000;
 
+  function rotateAfterPastes() {
+    const value = Number(document.documentElement.dataset.sideraRotateAfter);
+    return Number.isFinite(value) && value >= 1 ? value : ROTATE_AFTER_PASTES;
+  }
+
+  function applySettings(settings) {
+    if (!settings || typeof settings !== "object") return;
+    const rotate = Number(settings.rotate_after_pastes);
+    if (Number.isFinite(rotate) && rotate >= 1) document.documentElement.dataset.sideraRotateAfter = String(rotate);
+  }
+
   function pasteCount() {
     return Number(document.documentElement.dataset.sideraPasteCount || 0);
   }
@@ -103,12 +114,40 @@
     }
   }
 
-  function continueInFreshChat(text, messageId, options) {
-    if (genesisText()) {
-      queueAfterGenesis(text, messageId, options);
-      return;
+  // Ask the mediator for a catch-up brief (saved memories plus the last few
+  // turns) so a fresh chat continues the conversation instead of starting cold.
+  const BRIEF_WAIT_MS = 9000;
+
+  function requestContextBrief(callback) {
+    let done = false;
+    const finish = (text) => {
+      if (done) return;
+      done = true;
+      callback(text || "");
+    };
+    const timer = setTimeout(() => finish(""), BRIEF_WAIT_MS);
+    try {
+      chrome.runtime.sendMessage({ type: "CONTEXT_REQUEST", hemisphere: hemisphere }, (response) => {
+        void (chrome.runtime && chrome.runtime.lastError);
+        clearTimeout(timer);
+        finish(response && response.text);
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      finish("");
     }
-    setTimeout(() => injectAndSubmit(text, messageId, options), NEW_CHAT_SETTLE_MS);
+  }
+
+  function continueInFreshChat(text, messageId, options) {
+    requestContextBrief((brief) => {
+      const caughtUp = brief ? `${brief}\n\n${text}` : text;
+      if (brief) console.log(`[Sidera ${hemisphere}] Catch-up brief received (${brief.length} chars) for the fresh chat.`);
+      if (genesisText()) {
+        queueAfterGenesis(caughtUp, messageId, options);
+        return;
+      }
+      setTimeout(() => injectAndSubmit(caughtUp, messageId, options), NEW_CHAT_SETTLE_MS);
+    });
   }
 
   function rotateAndResend(reason) {
@@ -354,7 +393,7 @@
     }
     if (!silent) {
       const count = pasteCount() + 1;
-      if (count > ROTATE_AFTER_PASTES && openFreshChat(site, `${count - 1} messages pasted into this chat`)) {
+      if (count > rotateAfterPastes() && openFreshChat(site, `${count - 1} messages pasted into this chat`)) {
         setPasteCount(1);
         continueInFreshChat(text, messageId, { silent: true, confirm: true });
         return;
@@ -474,6 +513,7 @@
       isPaired = true;
       document.documentElement.dataset.sideraInstance = instanceId;
       if (typeof msg.genesis === "string" && msg.genesis) document.documentElement.dataset.sideraGenesis = msg.genesis;
+      applySettings(msg.settings);
       if (msg.baseline === false) {
         lastCompletedText = "";
         sawStop = false;
@@ -487,6 +527,9 @@
       sendResponse({ status: "submitting" });
     } else if (msg.type === "SET_GENESIS") {
       if (typeof msg.genesis === "string") document.documentElement.dataset.sideraGenesis = msg.genesis;
+      sendResponse({ status: "ok" });
+    } else if (msg.type === "SET_SETTINGS") {
+      applySettings(msg.settings);
       sendResponse({ status: "ok" });
     } else if (msg.type === "GET_LATEST_MESSAGE") {
       const site = adapter();
