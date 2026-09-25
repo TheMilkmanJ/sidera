@@ -16,7 +16,7 @@ through the interface below, so a site change is fixed by editing one adapter fi
 | `waitForCompletedAssistantMessage(options)` | promise for the next stable reply (debounce + timeout) |
 | `isComposerReady()` / `setComposerText(text)` / `submitComposer()` | composer handling |
 | `stopGenerating()` | click the stop control (hang recovery) |
-| `startNewChat()` | click the site's New chat control (long-session rotation) |
+| `startNewChat()` | click the site's New chat control (long-session rotation; the mediator then supplies a catch-up brief from memory) |
 
 Every method reads its selectors from the adapter's `selectors` table. Each entry is a
 list tried in order, so add the new selector at the top and leave the old one below it.

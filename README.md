@@ -27,6 +27,7 @@ Python 3.11 or newer is required (`config.toml` is read with the standard librar
 | `mediator.data_root` | `data` | where the ledger, transcripts, logs, memory and file sandbox live |
 | `mediator.max_autonomous_turns` | `50` | pause after this many autonomous turns (also adjustable in the popup) |
 | `mediator.autonomous_submissions` | `true` | `false` = monitor and log only, never paste |
+| `mediator.rotate_after_pastes` | `50` | move a side to a fresh, caught-up chat after this many pastes into one chat |
 | `genesis.enabled` | `true` | teach both AIs the tag protocol when Start is pressed |
 | `genesis.prompt_file` | `mediator/genesis_protocol.md` | the protocol text |
 | `logging.level` | `INFO` | log verbosity |
@@ -118,7 +119,7 @@ Very long single chats are where ChatGPT, Grok and Gemini start hanging or answe
 
 - A reply that shows no new text for 6 minutes while the site still says it is generating is stopped and the message is resent once.
 - A canned error reply ("I encountered an error…", "Something went wrong…") is not forwarded; the message is resent once.
-- If the same message fails twice, or after 50 pastes into one chat, the side opens a fresh chat, re-teaches the Genesis Protocol, and continues there.
+- If the same message fails twice, or after `rotate_after_pastes` pastes into one chat (50 by default), the side opens a fresh chat, is re-taught the Genesis Protocol, and is caught up with a Sidera system block holding the newest saved memories and the last few turns before the pending message is pasted. The new session continues the conversation instead of starting cold; the transcript records each catch-up.
 - Only an exact repeat of a side's most recent reply is treated as a duplicate; a reply that genuinely repeats the previous one is still forwarded.
 - Some sites (Gemini) only submit on trusted input, so if a paste is still sitting in the composer after the normal submit, the extension presses the site's Send button through Chrome's debugger API (the launcher passes `--silent-debugger-extension-api`, so there is no infobar).
 - If a site keeps refusing a message (Grok's free-tier usage limit, Gemini's "Something went wrong (1095)"), the mediator pauses and shows the site's own notice in the popup and log. Press Resume once the site accepts messages again; the pending message is pasted again automatically.

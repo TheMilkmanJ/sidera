@@ -64,7 +64,7 @@ rather than resuming.
 
 For each routed message: a heading `## [SIDERA-0000184] LEFT -> RIGHT | <time> UTC`, the
 status, hash prefix, executed tags, turn number and the forwarded text. Between messages:
-status transitions, Genesis handshake lines, settings changes, manual forwards and error
+status transitions, Genesis handshake lines, fresh-chat catch-ups (`Fresh chat: LEFT caught up with N memories and K recent turns`), settings changes, manual forwards and error
 signals (`TAG_ERROR`, `INJECTION_ERROR`, `SUBMISSION_STALLED`).
 
 ## logs/sidera_mediator.log
