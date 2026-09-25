@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from mediator.config import MediatorConfig, load_config
 from mediator.file_sandbox import FileSandbox
 from mediator.ipc import NativeMessagingIPC
 from mediator.logging_config import setup_logging
@@ -24,6 +25,15 @@ logger = logging.getLogger("sidera.core")
 
 GENESIS_PROMPT_PATH = Path(__file__).resolve().parent / "genesis_protocol.md"
 GENESIS_MESSAGE_PREFIX = "GENESIS-"
+ACTIVE_STATES = (
+    MediatorState.WAIT_LEFT,
+    MediatorState.WAIT_RIGHT,
+    MediatorState.LEFT_COMPLETE,
+    MediatorState.RIGHT_COMPLETE,
+    MediatorState.PROCESS,
+    MediatorState.SEND_LEFT,
+    MediatorState.SEND_RIGHT,
+)
 
 
 def load_genesis_prompt(path: Path = GENESIS_PROMPT_PATH) -> str:
@@ -34,24 +44,42 @@ class MediatorService:
     def __init__(
         self,
         root_dir: Optional[Path] = None,
-        max_turns: int = 50,
+        max_turns: Optional[int] = None,
         genesis_enabled: Optional[bool] = None,
+        config: Optional[MediatorConfig] = None,
+        autonomous_submissions: Optional[bool] = None,
     ):
-        self.root_dir = (root_dir or Path(__file__).resolve().parent.parent / "data").resolve()
+        self.config = config or load_config()
+        self.root_dir = (root_dir or self.config.data_root).resolve()
         self.root_dir.mkdir(parents=True, exist_ok=True)
+        if max_turns is None:
+            max_turns = self.config.max_autonomous_turns
+        # False = monitor and log only; nothing is pasted into either chat.
+        self.autonomous_submissions = (
+            self.config.autonomous_submissions if autonomous_submissions is None else autonomous_submissions
+        )
 
         # The Genesis Protocol is taught to both sides before the first turn.
         # SIDERA_GENESIS=off skips it (used by the pure copy-paste checks).
         if genesis_enabled is None:
-            genesis_enabled = os.environ.get("SIDERA_GENESIS", "on").lower() not in ("off", "0", "false", "no")
+            env = os.environ.get("SIDERA_GENESIS")
+            genesis_enabled = self.config.genesis_enabled if env is None else env.lower() not in ("off", "0", "false", "no")
         self.genesis_enabled = genesis_enabled
-        self.genesis_prompt = load_genesis_prompt() if genesis_enabled else ""
+        prompt_path = self.config.genesis_prompt_file if self.config.genesis_prompt_file.exists() else GENESIS_PROMPT_PATH
+        self.genesis_prompt = load_genesis_prompt(prompt_path) if genesis_enabled else ""
         self.genesis_pending: List[str] = []
         self.genesis_target: Optional[str] = None
         self.genesis_initial_side = "LEFT"
+        # Results of read/recall tags wait here for the hemisphere that asked
+        # and ride along with the next message pasted into it (spec 8.5).
+        self.pending_system_blocks: Dict[str, List[str]] = {"LEFT": [], "RIGHT": []}
 
         setup_logging(self.root_dir / "logs")
         logger.info(f"Initializing Sidera Mediator Service at {self.root_dir}")
+        if self.config.source_path:
+            logger.info("Configuration loaded from %s", self.config.source_path)
+        if not self.autonomous_submissions:
+            logger.warning("MONITOR_ONLY mode: autonomous submissions are disabled by configuration")
 
         self.ledger = MessageLedger(self.root_dir / "ledger.sqlite")
         self.memory = MemoryStore(self.root_dir / "memory")
@@ -77,7 +105,42 @@ class MediatorService:
             max_autonomous_turns=max_turns,
             on_state_change=self._broadcast_state_change,
         )
+        self._restore_runtime_state()
         self._check_crash_recovery()
+
+    # --- persistence across restarts ---------------------------------------------
+
+    def _persist_runtime_state(self, state: MediatorState):
+        self.ledger.set_runtime_state(
+            state=state.value,
+            turn_count=self.state_machine.turn_count,
+            current_message_id=self.state_machine.current_message_id,
+            last_error=self.state_machine.last_error,
+            max_autonomous_turns=self.state_machine.max_autonomous_turns,
+        )
+
+    def _restore_runtime_state(self):
+        """Fail closed: a restart never silently resumes an exchange (spec 11.1)."""
+        saved = self.ledger.get_runtime_state()
+        if not saved:
+            return
+        try:
+            self.state_machine.turn_count = int(saved.get("turn_count") or 0)
+        except ValueError:
+            pass
+        try:
+            self.state_machine.max_autonomous_turns = int(saved.get("max_autonomous_turns") or self.state_machine.max_autonomous_turns)
+        except ValueError:
+            pass
+        previous = saved.get("state")
+        if previous == MediatorState.PAUSED.value:
+            self.state_machine.pause(saved.get("last_error") or "Paused before the mediator was last closed.")
+            logger.warning("Restored PAUSED state from the previous session")
+        elif previous in [s.value for s in ACTIVE_STATES]:
+            self.state_machine.pause(
+                f"Mediator restarted while in {previous}. Review the transcript, then press Resume or STOP."
+            )
+            logger.warning("Previous session ended mid-exchange (%s); starting PAUSED", previous)
 
     def _write_transcript_line(self, text: str):
         with self.transcript_file.open("a", encoding="utf-8") as handle:
@@ -103,10 +166,16 @@ class MediatorService:
             "type": "STATE_UPDATE",
             "state": state.value,
             "turn_count": self.state_machine.turn_count,
+            "max_turns": self.state_machine.max_autonomous_turns,
             "last_message_id": self.state_machine.current_message_id,
             "last_error": self.state_machine.last_error,
+            "autonomous_submissions": self.autonomous_submissions,
             "context": context,
         }
+        try:
+            self._persist_runtime_state(state)
+        except Exception as err:  # never let bookkeeping break routing
+            logger.error("Could not persist runtime state: %s", err)
         self.ipc.send_message(payload)
 
     def _check_crash_recovery(self):
@@ -179,6 +248,31 @@ class MediatorService:
         self._send_genesis_to_next()
         return True
 
+    def _attach_system_blocks(self, destination: str, text: str) -> str:
+        """Prepend any Sidera system blocks waiting for this hemisphere."""
+        blocks = self.pending_system_blocks.get(destination, [])
+        if not blocks:
+            return text
+        self.pending_system_blocks[destination] = []
+        return "\n\n".join(blocks) + ("\n\n" + text if text else "")
+
+    def _submit(self, destination: str, message_id: str, text: str):
+        """Hand a message to the extension for pasting, unless monitoring only."""
+        if not self.autonomous_submissions:
+            logger.warning("MONITOR_ONLY: not pasting %s into %s (autonomous submissions disabled)", message_id, destination)
+            self._write_transcript_line(
+                f"- **Monitor only:** `{message_id}` for `{destination}` was not pasted (autonomous submissions disabled)\n"
+            )
+            self.state_machine.pause("Monitor-only mode: autonomous submissions are disabled in config.toml.")
+            return
+        self.ledger.update_status(message_id, "SUBMITTING")
+        self.ipc.send_message({
+            "type": "SUBMIT_MESSAGE",
+            "destination": destination,
+            "message_id": message_id,
+            "text": text,
+        })
+
     def _resend_pending_after_resume(self):
         """After a pause taken mid-send, paste the pending message again."""
         state = self.state_machine.state
@@ -191,12 +285,27 @@ class MediatorService:
         dest = "LEFT" if state == MediatorState.SEND_LEFT else "RIGHT"
         text = record.get("clean_content") or record.get("content") or ""
         logger.info("Resuming: pasting %s into %s again", message_id, dest)
-        self.ipc.send_message({
-            "type": "SUBMIT_MESSAGE",
-            "destination": dest,
-            "message_id": message_id,
-            "text": text,
-        })
+        self._submit(dest, message_id, self._attach_system_blocks(dest, text))
+
+    def _open_path(self, path: Path) -> bool:
+        """Open a folder or file with the desktop's default handler (spec 10)."""
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", str(path)])
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", str(path)])
+            return True
+        except Exception as err:
+            logger.error("Could not open %s: %s", path, err)
+            return False
+
+    def _latest_log_file(self) -> Optional[Path]:
+        logs = sorted((self.root_dir / "logs").glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+        return logs[0] if logs else None
 
     def handle_message(self, packet: Dict[str, Any]):
         msg_type = packet.get("type", "").upper()
@@ -245,7 +354,32 @@ class MediatorService:
                 self.state_machine.pause(f"{detail} Press Resume once the site accepts messages again.")
 
         elif msg_type == "STOP":
+            self.genesis_pending = []
+            self.genesis_target = None
             self.state_machine.stop()
+
+        elif msg_type == "SET_MAX_TURNS":
+            try:
+                value = int(packet.get("max_turns"))
+            except (TypeError, ValueError):
+                logger.warning("SET_MAX_TURNS ignored: %r is not a number", packet.get("max_turns"))
+                return
+            if value < 1:
+                logger.warning("SET_MAX_TURNS ignored: must be at least 1")
+                return
+            self.state_machine.max_autonomous_turns = value
+            self.ledger.set_runtime_state(max_autonomous_turns=value)
+            logger.info("Maximum autonomous turns set to %s", value)
+            self._write_transcript_line(f"- **Setting:** maximum autonomous turns set to `{value}`\n")
+            self._broadcast_state_change(self.state_machine.state, {"max_turns": value})
+
+        elif msg_type == "OPEN_DATA_FOLDER":
+            self._open_path(self.root_dir)
+
+        elif msg_type == "OPEN_LATEST_LOG":
+            latest = self._latest_log_file()
+            if latest:
+                self._open_path(latest)
 
         elif msg_type == "GET_STATUS":
             last_msg = self.ledger.get_last_message(self.conversation_id)
@@ -256,6 +390,8 @@ class MediatorService:
                 "max_turns": self.state_machine.max_autonomous_turns,
                 "last_message_id": last_msg["message_id"] if last_msg else None,
                 "last_error": self.state_machine.last_error,
+                "autonomous_submissions": self.autonomous_submissions,
+                "data_root": str(self.root_dir),
                 "slots": {k: v.to_dict() for k, v in self.state_machine.slots.items()},
             })
 
@@ -328,22 +464,41 @@ class MediatorService:
             self.state_machine.start_processing()
 
             clean_text, operations, errors = self.tag_parser.parse(raw_content)
+            system_injections: List[str] = []
             for tag_error in errors:
+                # Fail closed: log it, execute nothing for it, tell the requester.
                 logger.error("TAG_ERROR message=%s detail=%s", record["message_id"], tag_error)
                 self._write_transcript_line(
                     f"- **Error signal:** `TAG_ERROR` message=`{record['message_id']}` detail=`{tag_error}`\n"
                 )
-            system_injections, controls = self.tag_parser.execute_operations(
-                operations=operations,
-                memory_store=self.memory,
-                file_sandbox=self.sandbox,
-                source=source,
-                parent_message_id=record["message_id"],
-            )
+                system_injections.append(f"[SIDERA SYSTEM ERROR: {tag_error}; the tag was not executed]")
 
-            outbound_text = clean_text
+            if self.ledger.operations_recorded(record["message_id"]):
+                # Already executed before a crash/restart; never run writes twice.
+                logger.warning("Tag operations for %s were already executed; not repeating them", record["message_id"])
+                controls = {"pause": False, "stop": False, "reason": None}
+            else:
+                results, controls = self.tag_parser.execute_operations(
+                    operations=operations,
+                    memory_store=self.memory,
+                    file_sandbox=self.sandbox,
+                    source=source,
+                    parent_message_id=record["message_id"],
+                )
+                system_injections.extend(results)
+                for index, op in enumerate(operations):
+                    attrs = op.get("attributes", {})
+                    self.ledger.record_operation(
+                        record["message_id"], index, op["type"], attrs.get("path") or attrs.get("category"), "EXECUTED"
+                    )
+
+            # Read/recall results (and tag errors) go back to the side that asked,
+            # attached to the next message pasted into it (spec 8.5). The other
+            # side receives only the conversational text.
             if system_injections:
-                outbound_text += "\n\n" + "\n\n".join(system_injections)
+                self.pending_system_blocks[source].extend(system_injections)
+                logger.info("Queued %s Sidera system block(s) for %s", len(system_injections), source)
+            outbound_text = self._attach_system_blocks(dest, clean_text)
 
             self.ledger.update_status(record["message_id"], "PROCESSED", clean_content=clean_text)
 
@@ -367,13 +522,7 @@ class MediatorService:
                     )
                 return
 
-            self.ledger.update_status(record["message_id"], "SUBMITTING")
-            self.ipc.send_message({
-                "type": "SUBMIT_MESSAGE",
-                "destination": dest,
-                "message_id": record["message_id"],
-                "text": outbound_text,
-            })
+            self._submit(dest, record["message_id"], outbound_text)
 
         elif msg_type == "SUBMISSION_CONFIRMED":
             dest = packet.get("destination", "").upper()
@@ -413,21 +562,35 @@ class MediatorService:
             self.state_machine.error(detail)
 
         elif msg_type == "MANUAL_FORWARD":
+            # Operator-triggered LEFT -> RIGHT or RIGHT -> LEFT (spec 10). Tags are
+            # processed like any captured reply; the ledger records it as manual.
             source = packet.get("source", "").upper()
             content = packet.get("content", "")
+            if source not in ("LEFT", "RIGHT") or not content.strip():
+                logger.warning("MANUAL_FORWARD ignored: source=%r, empty=%s", source, not content.strip())
+                return
             dest = self.state_machine.get_next_slot(source)
+            last_msg = self.ledger.get_last_message(self.conversation_id)
             record = self.ledger.capture_message(
                 conversation_id=self.conversation_id,
                 source=source,
                 destination=dest,
                 content=content,
+                parent_message_id=last_msg["message_id"] if last_msg else None,
             )
-            self.ipc.send_message({
-                "type": "SUBMIT_MESSAGE",
-                "destination": dest,
-                "message_id": record["message_id"],
-                "text": content,
-            })
+            clean_text, operations, errors = self.tag_parser.parse(content)
+            results, controls = self.tag_parser.execute_operations(
+                operations=operations, memory_store=self.memory, file_sandbox=self.sandbox,
+                source=source, parent_message_id=record["message_id"],
+            )
+            for index, op in enumerate(operations):
+                attrs = op.get("attributes", {})
+                self.ledger.record_operation(record["message_id"], index, op["type"], attrs.get("path") or attrs.get("category"), "EXECUTED")
+            self.pending_system_blocks[source].extend(results)
+            self.ledger.update_status(record["message_id"], "PROCESSED", clean_content=clean_text)
+            self._write_transcript_line(f"- **Manual forward:** `{source}` -> `{dest}` as `{record['message_id']}`\n")
+            self._append_transcript(record, clean_text, operations)
+            self._submit(dest, record["message_id"], self._attach_system_blocks(dest, clean_text))
 
     def run(self):
         logger.info("Sidera Native Messaging loop started.")

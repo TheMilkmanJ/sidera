@@ -54,7 +54,73 @@ class MessageLedger:
                 FOREIGN KEY (message_id) REFERENCES messages(message_id)
             );
             """)
+            # Tag operations are keyed by the message that requested them, so a
+            # replay after a crash can see they already ran (spec 8.5).
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS tag_operations (
+                message_id TEXT NOT NULL,
+                op_index INTEGER NOT NULL,
+                op_type TEXT NOT NULL,
+                target TEXT,
+                result TEXT NOT NULL,
+                executed_at TEXT NOT NULL,
+                PRIMARY KEY (message_id, op_index),
+                FOREIGN KEY (message_id) REFERENCES messages(message_id)
+            );
+            """)
+            # Mediator state that must survive a restart (spec 11.1).
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS runtime_state (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT NOT NULL
+            );
+            """)
             conn.commit()
+
+    # --- tag operation idempotency ---------------------------------------------
+
+    def operations_recorded(self, message_id: str) -> bool:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM tag_operations WHERE message_id = ? LIMIT 1", (message_id,)
+            ).fetchone()
+            return row is not None
+
+    def record_operation(self, message_id: str, op_index: int, op_type: str, target: Optional[str], result: str):
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO tag_operations (message_id, op_index, op_type, target, result, executed_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (message_id, op_index, op_type, target, result, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+
+    def get_operations(self, message_id: str) -> List[Dict]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM tag_operations WHERE message_id = ? ORDER BY op_index", (message_id,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    # --- runtime state -----------------------------------------------------------
+
+    def set_runtime_state(self, **values):
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            for key, value in values.items():
+                conn.execute(
+                    "INSERT OR REPLACE INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?)",
+                    (key, None if value is None else str(value), now),
+                )
+            conn.commit()
+
+    def get_runtime_state(self) -> Dict[str, Optional[str]]:
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT key, value FROM runtime_state").fetchall()
+            return {row["key"]: row["value"] for row in rows}
 
     @staticmethod
     def compute_sha256(content: str) -> str:
