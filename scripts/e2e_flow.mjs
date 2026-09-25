@@ -321,7 +321,12 @@ while (Date.now() < deadline && submits.length < TURN_GOAL) {
     const message = incoming.shift();
     if (message.type === "SUBMIT_MESSAGE") {
       if (!message.message_id.startsWith(GENESIS_PREFIX)) submits.push(message);
-      await deliver(message);
+      try {
+        await deliver(message);
+      } catch (err) {
+        // The watchdog re-binds and retries; one failed paste must not end the run.
+        console.error(`deliver failed for ${message.message_id}: ${err.message}`);
+      }
     }
     if (message.type === "STATE_UPDATE" && message.state === "ERROR") {
       error = message.last_error || "mediator error";
