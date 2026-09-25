@@ -31,7 +31,7 @@ class TestInstallScripts(unittest.TestCase):
         self.assertIn("sidera.ico", ps1)
         self.assertIn("//B", ps1)
         self.assertIn("chatgpt.com", vbs)
-        self.assertIn("gemini.google.com", vbs)
+        self.assertIn("grok.com", vbs)
         self.assertIn("--load-extension=", vbs)
         # Trusted key presses go through chrome.debugger; this flag hides the infobar.
         self.assertIn("--silent-debugger-extension-api", vbs)

@@ -55,7 +55,7 @@ class StateMachine:
 
         self.slots: Dict[str, ParticipantSlot] = {
             "LEFT": ParticipantSlot("LEFT", "chatgpt"),
-            "RIGHT": ParticipantSlot("RIGHT", "gemini"),
+            "RIGHT": ParticipantSlot("RIGHT", "grok"),
         }
         self.slot_sequence = [s.upper() for s in (slot_sequence or ["LEFT", "RIGHT"])]
 

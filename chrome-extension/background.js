@@ -13,7 +13,7 @@ let genesisText = "";
 
 const slotRegistry = {
   LEFT: { adapter: "chatgpt", tabId: null },
-  RIGHT: { adapter: "gemini", tabId: null },
+  RIGHT: { adapter: "grok", tabId: null },
 };
 
 function persistSession() {
@@ -215,7 +215,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendToMediator({ type: reqType });
   } else if (reqType === "PAIR_TAB" || reqType === "HOOK_TAB") {
     const slotId = (request.side || request.slotId || "LEFT").toUpperCase();
-    const adapterType = request.adapterType || (slotId === "LEFT" ? "chatgpt" : "gemini");
+    const adapterType = request.adapterType || (slotId === "LEFT" ? "chatgpt" : "grok");
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs || tabs.length === 0) return;

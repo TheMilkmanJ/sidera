@@ -3,7 +3,7 @@
   "name": "Sidera Dual-Hemisphere Mediator",
   "version": "1.0.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0V6iaUDJhHkVtAO2z+iqOeaib4n5Y/JKHYHw5ZZiqaLLiWIVUd2PjsfGQb37lDVi6ZEQDa8xNt4IvyHFWGBtiSfKYbiI+ExAgKkG9D3eq99/tdO/67nb5+hKvPKfDZEwu7Bwhn1PWq446+XswerTlfvRgMgg0/axLbuCUyd/TXzq5abhKmGiKBLGzkPHaPZPXEzLP1qJiRHuuSI8NZW0wL4Uir7f5nRUfoWSuS/pBu9QPzAMLblhy4u/uiEOBUJ9oe+50c1fLCbF5r/QBN40LYhWiRZYYhfcjbO8Bf8a5X4aOfKprPE9vUc3vGpiddrJ8pQzetvZ+BDaxdf9mab9WQIDAQAB",
-  "description": "Local browser bridge and turn-taking mediator between ChatGPT and Gemini.",
+  "description": "Local browser bridge and turn-taking mediator between ChatGPT and Grok (Gemini also supported).",
   "permissions": [
     "tabs",
     "activeTab",

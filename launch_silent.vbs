@@ -1,6 +1,6 @@
 Option Explicit
 ' Windowless launcher. wscript.exe //B shows no console.
-' Chrome opens ChatGPT and Gemini with the Sidera extension already loaded,
+' Chrome opens ChatGPT and Grok with the Sidera extension already loaded,
 ' so the operator only pairs LEFT and RIGHT and presses Start.
 Dim shell, fso, chrome, installRoot, extensionDir
 Set shell = CreateObject("WScript.Shell")
@@ -18,8 +18,8 @@ If Not fso.FileExists(chrome) Then
 End If
 
 If fso.FileExists(chrome) Then
-  shell.Run """" & chrome & """ --load-extension=""" & extensionDir & """ --silent-debugger-extension-api --new-window https://chatgpt.com/ https://gemini.google.com/app", 1, False
+  shell.Run """" & chrome & """ --load-extension=""" & extensionDir & """ --silent-debugger-extension-api --new-window https://chatgpt.com/ https://grok.com/", 1, False
 Else
   shell.Run "https://chatgpt.com/", 1, False
-  shell.Run "https://gemini.google.com/app", 1, False
+  shell.Run "https://grok.com/", 1, False
 End If

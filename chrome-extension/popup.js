@@ -89,7 +89,7 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.runtime.sendMessage({ type: "PAIR_TAB", side: "RIGHT" }, () => {
       btnPairRight.classList.add("paired");
       btnPairRight.innerText = "RIGHT Paired ✓";
-      statusMessage.innerText = "Paired the active tab as RIGHT (Gemini or Grok).";
+      statusMessage.innerText = "Paired the active tab as RIGHT (Grok or Gemini).";
     });
   });
 
