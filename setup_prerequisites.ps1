@@ -66,6 +66,12 @@ if ($LASTEXITCODE -ge 8) {
     throw "Failed to copy Sidera files to $InstallRoot (robocopy exit $LASTEXITCODE)."
 }
 
+# A config file is created from the example on first install and never overwritten.
+$configPath = Join-Path $InstallRoot "config.toml"
+if (-not (Test-Path $configPath)) {
+    Copy-Item (Join-Path $InstallRoot "config.example.toml") $configPath
+}
+
 $hostManifestPath = Join-Path $InstallRoot "com.sidera.mediator.json"
 $hostBat = Join-Path $InstallRoot "run_mediator.bat"
 $manifest = Get-Content -Raw -Path $hostManifestPath | ConvertFrom-Json

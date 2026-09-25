@@ -42,6 +42,25 @@ class TestInstallScripts(unittest.TestCase):
         self.assertIn("python -u -m mediator.main", host)
         self.assertIn("PYTHONUNBUFFERED=1", host)
 
+    def test_uninstall_keeps_memory_and_config(self):
+        ps1 = (ROOT / "uninstall.ps1").read_text(encoding="utf-8")
+        bat = (ROOT / "UNINSTALL.bat").read_text(encoding="utf-8")
+        self.assertIn("uninstall.ps1", bat)
+        self.assertIn('$_.Name -ne "data"', ps1)
+        self.assertIn('$_.Name -ne "config.toml"', ps1)
+        self.assertIn("NativeMessagingHosts\\com.sidera.mediator", ps1)
+        self.assertIn('"Sidera Mediator.lnk"', ps1)
+        # The data folder must never be a removal target.
+        self.assertNotIn("Remove-Item -Path $DataRoot", ps1)
+
+    def test_installer_creates_config_without_overwriting(self):
+        ps1 = (ROOT / "setup_prerequisites.ps1").read_text(encoding="utf-8")
+        self.assertIn("config.example.toml", ps1)
+        self.assertIn("if (-not (Test-Path $configPath))", ps1)
+        self.assertTrue((ROOT / "config.example.toml").exists())
+        for doc in ("tag_protocol.md", "data_schema.md", "maintenance_selectors.md", "uninstall_and_disable.md", "third_party.md"):
+            self.assertTrue((ROOT / "docs" / doc).exists(), doc)
+
     def test_desktop_icon_is_offered(self):
         ps1 = (ROOT / "setup_prerequisites.ps1").read_text(encoding="utf-8")
         bat = (ROOT / "INSTALL.bat").read_text(encoding="utf-8")

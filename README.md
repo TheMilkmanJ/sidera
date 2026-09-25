@@ -1,16 +1,37 @@
 # Sidera Dual-Hemisphere Mediator
 
-Local turn-taking mediator between a ChatGPT tab (LEFT) and a Gemini tab (RIGHT). It uses the signed-in Chrome sessions you already have. There is no paid API and no localhost port. Chrome talks to the Python host through native messaging (stdin/stdout).
+Local turn-taking mediator between a ChatGPT tab (LEFT) and a Gemini tab (RIGHT), built to the Sidera Phase 1 build specification. It uses the signed-in Chrome sessions you already have. There is no paid API and no localhost port. Chrome talks to the Python host through native messaging (stdin/stdout).
 
-The state machine runs `WAIT_LEFT` → `PROCESS` → `SEND_RIGHT` → `WAIT_RIGHT` → `PROCESS` → `SEND_LEFT`, and stops itself after 50 autonomous turns so a burn-in has a fixed ceiling.
+The specification names Grok as the right hemisphere; a Grok adapter is included and any supported tab can be paired as RIGHT. Gemini is the default for now because Grok's usage limits interrupted the multi-hour burn-ins.
+
+The state machine runs `WAIT_LEFT` → `PROCESS` → `SEND_RIGHT` → `WAIT_RIGHT` → `PROCESS` → `SEND_LEFT`, and pauses itself after the configured number of autonomous turns (50 by default) so a burn-in has a fixed ceiling.
+
+Documentation: [tag protocol](docs/tag_protocol.md), [data schema](docs/data_schema.md), [adapter maintenance](docs/maintenance_selectors.md), [disable and uninstall](docs/uninstall_and_disable.md), [third-party software](docs/third_party.md).
 
 ## Run the tests
 
 ```bash
 python3 -m unittest discover tests
+node tests/test_completion.js
+node tests/test_content_recovery.js
 ```
 
-Python 3.10 or newer is required.
+Python 3.11 or newer is required (3.10 works, but then `config.toml` is ignored and defaults are used).
+
+## Configuration
+
+`config.toml` sits next to the program files (`C:\Sidera\config.toml`; the installer creates it from `config.example.toml` and never overwrites it). Every key is optional:
+
+| key | default | meaning |
+| --- | --- | --- |
+| `mediator.data_root` | `data` | where the ledger, transcripts, logs, memory and file sandbox live |
+| `mediator.max_autonomous_turns` | `50` | pause after this many autonomous turns (also adjustable in the popup) |
+| `mediator.autonomous_submissions` | `true` | `false` = monitor and log only, never paste |
+| `genesis.enabled` | `true` | teach both AIs the tag protocol when Start is pressed |
+| `genesis.prompt_file` | `mediator/genesis_protocol.md` | the protocol text |
+| `logging.level` | `INFO` | log verbosity |
+
+No personal paths or credentials are stored anywhere; the browser sessions provide authentication.
 
 ## Install on Windows 10/11
 
@@ -26,6 +47,14 @@ What the installer does:
 Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. Chrome opens ChatGPT and Gemini with the Sidera extension already loaded from `C:\Sidera\chrome-extension`; nothing needs to be loaded by hand. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
 
 In the extension popup: pair the ChatGPT tab as LEFT, the Gemini tab as RIGHT, and press Start. The mediator then runs the Genesis Protocol (below) with both AIs before waiting for your opening message in the ChatGPT tab.
+
+## Operator controls (extension popup)
+
+- **Pair LEFT / Pair RIGHT**: assign the active tab. **Start Exchange**, **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
+- **Manual forward** LEFT → RIGHT or RIGHT → LEFT: copies the newest completed reply once, through the same ledger and tag processing.
+- **Maximum autonomous turns**: change the ceiling while running; the value is remembered across restarts.
+- **Open data folder / Open latest log**.
+- Status: state, turn `N / max`, last message ID, mediator connection, mode (autonomous or monitor only) and the last error or pause reason in the site's own words.
 
 ## Genesis Protocol
 
@@ -93,3 +122,20 @@ Very long single chats are where ChatGPT and Gemini start hanging or answering w
 - Only an exact repeat of a side's most recent reply is treated as a duplicate; a reply that genuinely repeats the previous one is still forwarded.
 - Gemini only submits on trusted input, so the extension presses its Send button through Chrome's debugger API when a paste is still sitting in the composer (the launcher passes `--silent-debugger-extension-api`, so there is no infobar).
 - If a site keeps refusing a message (for example Gemini's "Something went wrong (1095)" after a usage limit), the mediator pauses and shows the site's own notice in the popup and log. Press Resume once the site accepts messages again; the pending message is pasted again automatically.
+
+## Specification acceptance criteria (section 12)
+
+| test | how it is met | where verified |
+| --- | --- | --- |
+| Tab pairing | popup pairs the active tab as LEFT or RIGHT; the adapter is picked by hostname | live |
+| Response detection | stop-control state plus 2.5 s of stable text; interim status lines and canned errors are never forwarded | `tests/test_completion.js`, live |
+| One-way transfer | `SUBMIT_MESSAGE` → adapter paste → trusted Send click when needed → `SUBMISSION_CONFIRMED` | live |
+| Autonomous loop ≥ 50 turns | runs of 50, 100 and 215 alternating turns completed; long-session recoveries in place | live burn-ins |
+| Duplicate defence | SHA-256 + latest-reply guard; a re-rendered answer is dropped, a genuinely repeated reply is forwarded once | `tests/test_message_ledger.py`, `tests/test_content_recovery.js` |
+| Pause/stop survive restart | `runtime_state` table; restart restores PAUSED, or pauses if the last session ended mid-exchange | `tests/test_spec_compliance.py` |
+| Memory write exactly once | JSONL + Markdown record; operations recorded per message and never repeated | `tests/test_spec_compliance.py`, `tests/test_memory_store.py` |
+| Memory read | bounded results returned to the requesting hemisphere in a Sidera system block | `tests/test_spec_compliance.py` |
+| File I/O | create/append/read/list under `data/files`; traversal, absolute and UNC paths, other extensions rejected | `tests/test_file_sandbox.py`, `tests/test_genesis_protocol.py` |
+| Persistence | ledger/memory intact after restart, nothing replayed | `tests/test_spec_compliance.py` |
+| Logging | every message, tag operation, transition and error in `sidera_mediator.log` and the transcript | `tests/test_burn_in_logging.py` |
+| Website failure | missing composer → `INJECTION_ERROR` → ERROR state; refused paste → PAUSED with the site's notice | `tests/test_genesis_protocol.py` |
