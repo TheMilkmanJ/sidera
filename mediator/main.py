@@ -229,6 +229,10 @@ class MediatorService:
         elif msg_type == "RESPONSE_CAPTURED":
             source = packet.get("source", "").upper()
             raw_content = packet.get("content", "")
+            # The extension marks a reply "fresh" when it appeared on the page
+            # after the last paste; such a reply is new even if it repeats the
+            # previous one word for word.
+            fresh = bool(packet.get("fresh"))
             if self._handle_genesis_reply(source, raw_content):
                 return
             if is_ready_acknowledgement(raw_content):
@@ -241,7 +245,7 @@ class MediatorService:
             ) or (
                 source == "RIGHT" and self.state_machine.state == MediatorState.SEND_RIGHT
             )
-            if awaiting_confirmation and self.ledger.is_duplicate(raw_content, source):
+            if awaiting_confirmation and not fresh and self.ledger.is_duplicate(raw_content, source):
                 # A re-capture of that side's previous reply proves nothing.
                 logger.info("Stale reply from %s while its paste is unconfirmed; ignored", source)
                 return
@@ -272,7 +276,7 @@ class MediatorService:
                 return
             dest = self.state_machine.get_next_slot(source)
 
-            if self.ledger.is_duplicate(raw_content, source):
+            if not fresh and self.ledger.is_duplicate(raw_content, source):
                 logger.warning(f"Duplicate response received from {source}. Skipping.")
                 self.ipc.send_message({"type": "DUPLICATE_IGNORED", "source": source})
                 return

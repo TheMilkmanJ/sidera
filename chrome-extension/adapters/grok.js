@@ -74,6 +74,25 @@ const GrokAdapter = {
     const stopBtn = SideraDom.queryFirst(this.selectors.stopButton, { visible: true });
     return stopBtn !== null && !stopBtn.disabled;
   },
+  countAssistantMessages() {
+    // textContent avoids the layout cost of innerText; this only needs to know
+    // how many answers with any text are on the page.
+    for (const sel of this.selectors.assistantMessage) {
+      let nodes = [];
+      try {
+        nodes = document.querySelectorAll(sel);
+      } catch (err) {
+        continue;
+      }
+      if (!nodes.length) continue;
+      let count = 0;
+      for (const node of nodes) {
+        if ((node.textContent || "").trim()) count += 1;
+      }
+      return count;
+    }
+    return 0;
+  },
   startNewChat() {
     const control = SideraDom.queryFirst(this.selectors.newChatControl, { visible: true });
     if (!control) return false;

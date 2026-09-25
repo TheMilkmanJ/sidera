@@ -139,6 +139,24 @@ class GenesisProtocolTests(unittest.TestCase):
         self.assertEqual(self.submits()[3]["destination"], "LEFT")
         self.assertEqual(service.ledger.get_message("SIDERA-0000003")["status"], "ACKNOWLEDGED")
 
+    def test_identical_reply_is_forwarded_when_marked_fresh(self):
+        service = self.make_service(genesis_enabled=False)
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "Confirmed."})
+        service.handle_message({"type": "SUBMISSION_CONFIRMED", "destination": "RIGHT", "message_id": "SIDERA-0000001"})
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "Confirmed. State remains SPECIFIED."})
+        service.handle_message({"type": "SUBMISSION_CONFIRMED", "destination": "LEFT", "message_id": "SIDERA-0000002"})
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "Confirmed.", "fresh": True})
+        self.assertEqual(len(self.submits()), 3, "LEFT's repeated reply is forwarded because it is fresh")
+        service.handle_message({"type": "SUBMISSION_CONFIRMED", "destination": "RIGHT", "message_id": "SIDERA-0000003"})
+        # Same words again from RIGHT: a re-capture is dropped, a fresh reply goes through.
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "Confirmed. State remains SPECIFIED.", "fresh": False})
+        self.assertEqual(len(self.submits()), 3)
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "Confirmed. State remains SPECIFIED.", "fresh": True})
+        self.assertEqual(len(self.submits()), 4)
+        self.assertEqual(self.submits()[3]["message_id"], "SIDERA-0000004")
+        self.assertEqual(self.submits()[3]["text"], "Confirmed. State remains SPECIFIED.")
+
     def test_genesis_can_be_switched_off(self):
         service = self.make_service(genesis_enabled=False)
         service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})

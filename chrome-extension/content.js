@@ -75,6 +75,7 @@
     sawStop = false;
     delete document.documentElement.dataset.sideraLastText;
     delete document.documentElement.dataset.sideraSawStop;
+    delete document.documentElement.dataset.sideraAnswersAtPaste;
     resetFailureTimers();
     return true;
   }
@@ -190,16 +191,22 @@
 
     const latest = site.getLatestAssistantMessage();
     const raw = latest && latest.text ? latest.text : "";
-    if (!raw || raw === lastCompletedText) return;
+    if (!raw) return;
+    // An answer that appeared after our last paste is a new reply even when
+    // it repeats the previous one word for word.
+    const answers = countAnswers(site);
+    const fresh = answers !== null && answersAtPaste() !== null && answers > answersAtPaste();
+    if (raw === lastCompletedText && !fresh) return;
     if (SideraCompletion.isInterimStatus(raw)) return;
     const text = SideraCompletion.finishedAnswer(raw);
-    if (!text || text === lastCompletedText) return;
+    if (!text || (text === lastCompletedText && !fresh)) return;
     if (SideraCompletion.isErrorReply(text) && recoverFailedReply("Site returned an error instead of a reply")) return;
 
     lastCompletedText = text;
     sawStop = false;
     document.documentElement.dataset.sideraLastText = text;
     delete document.documentElement.dataset.sideraSawStop;
+    if (answers !== null) setAnswersAtPaste(answers);
 
     const queued = takeQueuedAfterGenesis();
     if (queued) {
@@ -213,7 +220,26 @@
       type: "RESPONSE_CAPTURED",
       source: hemisphere,
       content: text,
+      fresh: fresh,
     });
+  }
+
+  function countAnswers(site) {
+    if (typeof site.countAssistantMessages !== "function") return null;
+    try {
+      return site.countAssistantMessages();
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function answersAtPaste() {
+    const value = document.documentElement.dataset.sideraAnswersAtPaste;
+    return value === undefined ? null : Number(value);
+  }
+
+  function setAnswersAtPaste(count) {
+    document.documentElement.dataset.sideraAnswersAtPaste = String(count);
   }
 
   // Spinners and icons animate SVG attributes continuously; that churn must not
@@ -330,6 +356,8 @@
       }
       setPasteCount(count);
     }
+    const answersNow = countAnswers(site);
+    if (answersNow !== null) setAnswersAtPaste(answersNow);
     try {
       site.setComposerText(text);
     } catch (err) {
