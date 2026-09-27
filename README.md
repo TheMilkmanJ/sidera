@@ -1,6 +1,6 @@
 # Sidera Dual-Hemisphere Mediator
 
-Local turn-taking mediator between a ChatGPT tab (LEFT) and a Grok tab (RIGHT), built to the Sidera Phase 1 build specification. It uses the signed-in Chrome sessions you already have. There is no paid API and no localhost port. Chrome talks to the Python host through native messaging (stdin/stdout).
+Local turn-taking mediator between a ChatGPT tab (LEFT) and a Grok tab (RIGHT), built to the Sidera Phase 1 build specification. It uses the signed-in sessions in your default browser. There is no paid API and no localhost port. The browser talks to the Python host through native messaging (stdin/stdout).
 
 Grok is the right hemisphere named in the specification and the default. A Gemini adapter is included as well and any supported tab can be paired as RIGHT; the long burn-ins (50, 100 and 215 turns) were run against Gemini because Grok's free-tier usage limits interrupt multi-hour sessions.
 
@@ -42,10 +42,10 @@ What the installer does:
 
 1. Finds Python 3.11+ if it is already there (`py -3`, `python`, or `python3`) and leaves it alone; otherwise installs Python 3.12 silently.
 2. Copies the files to `C:\Sidera`.
-3. Points `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.sidera.mediator` at `C:\Sidera\com.sidera.mediator.json`.
+3. Registers `com.sidera.mediator.json` as a native-messaging host for Chrome, Edge, Brave, Vivaldi, Opera, and Chromium (stable and the Chrome/Edge preview channels).
 4. Adds **Sidera Mediator** to the Start menu, and to the desktop if you say yes (the default). Run `INSTALL.bat -DesktopIcon Yes` or `-DesktopIcon No` to skip the question.
 
-Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. Chrome opens ChatGPT and Grok with the Sidera extension already loaded from `C:\Sidera\chrome-extension`; nothing needs to be loaded by hand. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
+Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. The launcher reads the Windows default browser for `https` and opens ChatGPT and Grok there with the Sidera extension already loaded from `C:\Sidera\chrome-extension`; nothing needs to be loaded by hand. That works when the default browser is Chrome, Edge, Brave, Vivaldi, or Opera. Firefox cannot load this extension. If the default browser cannot, and one of the supported browsers is installed, Sidera tells you and opens that one instead. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
 
 In the extension popup: pair the ChatGPT tab as LEFT, the Grok tab as RIGHT (or a Gemini tab, if you prefer), and press Start. The mediator then runs the Genesis Protocol (below) with both AIs before waiting for your opening message in the ChatGPT tab.
 
@@ -121,7 +121,7 @@ Very long single chats are where ChatGPT, Grok and Gemini start hanging or answe
 - A canned error reply ("I encountered an error…", "Something went wrong…") is not forwarded; the message is resent once.
 - If the same message fails twice, or after `rotate_after_pastes` pastes into one chat (50 by default), the side opens a fresh chat, is re-taught the Genesis Protocol, and is caught up with a Sidera system block holding the newest saved memories and the last few turns before the pending message is pasted. The new session continues the conversation instead of starting cold; the transcript records each catch-up.
 - Only an exact repeat of a side's most recent reply is treated as a duplicate; a reply that genuinely repeats the previous one is still forwarded.
-- Some sites (Gemini) only submit on trusted input, so if a paste is still sitting in the composer after the normal submit, the extension presses the site's Send button through Chrome's debugger API (the launcher passes `--silent-debugger-extension-api`, so there is no infobar).
+- Some sites (Gemini) only submit on trusted input, so if a paste is still sitting in the composer after the normal submit, the extension presses the site's Send button through the browser's debugger API (the launcher passes `--silent-debugger-extension-api`, so there is no infobar).
 - If a site keeps refusing a message (Grok's free-tier usage limit, Gemini's "Something went wrong (1095)"), the mediator pauses and shows the site's own notice in the popup and log. Press Resume once the site accepts messages again; the pending message is pasted again automatically.
 
 ## Specification acceptance criteria (section 12)

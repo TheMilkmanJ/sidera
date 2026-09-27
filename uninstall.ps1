@@ -3,7 +3,7 @@ param(
 )
 
 # Sidera Dual-Hemisphere Mediator - uninstall.
-# Removes the program files, the Chrome native-messaging registration and the
+# Removes the program files, the native-messaging registrations and the
 # shortcuts. It never touches C:\Sidera\data (ledger, transcripts, logs,
 # memory, files) or config.toml, so Sidera's memory survives a reinstall.
 
@@ -25,11 +25,29 @@ if (-not $Quiet) {
     }
 }
 
-# 1. Chrome native-messaging registration
-$registryPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.sidera.mediator"
-if (Test-Path $registryPath) {
-    Remove-Item -Path $registryPath -Recurse -Force
-    Write-Host "Removed the Chrome native-messaging registration."
+# 1. Native-messaging registration for every browser the installer and launcher know.
+# Keep this list in step with setup_prerequisites.ps1 and NativeHive in launch_silent.vbs.
+$nativeHives = @(
+    "Software\Google\Chrome",
+    "Software\Google\Chrome Beta",
+    "Software\Google\Chrome Dev",
+    "Software\Google\Chrome SxS",
+    "Software\Microsoft\Edge",
+    "Software\Microsoft\Edge Beta",
+    "Software\Microsoft\Edge Dev",
+    "Software\Microsoft\Edge SxS",
+    "Software\BraveSoftware\Brave-Browser",
+    "Software\Vivaldi",
+    "Software\Opera Software\Opera Stable",
+    "Software\Opera Software\Opera GX Stable",
+    "Software\Chromium"
+)
+foreach ($hive in $nativeHives) {
+    $registryPath = "HKCU:\$hive\NativeMessagingHosts\com.sidera.mediator"
+    if (Test-Path $registryPath) {
+        Remove-Item -Path $registryPath -Recurse -Force
+        Write-Host "Removed native-messaging registration: $hive"
+    }
 }
 
 # 2. Shortcuts
@@ -53,5 +71,5 @@ if (Test-Path $InstallRoot) {
 
 Write-Host ""
 Write-Host "Done. Sidera's memory, transcripts, logs and ledger are still in $DataRoot." -ForegroundColor Green
-Write-Host "In Chrome, open chrome://extensions and remove 'Sidera Dual-Hemisphere Mediator' if it is still listed."
+Write-Host "In the browser Sidera opened, open its extensions page and remove 'Sidera Dual-Hemisphere Mediator' if it is still listed."
 Write-Host "To disable Sidera without uninstalling, set autonomous_submissions = false in config.toml."

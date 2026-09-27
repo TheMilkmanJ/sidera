@@ -1,6 +1,7 @@
 # Sidera installer for Windows 10/11.
 # Detects an existing Python 3.11+ (needed for config.toml) and does not reinstall it.
-# Registers the Chrome native messaging host and offers a windowless desktop shortcut.
+# Registers the native messaging host for Chromium browsers and offers a windowless desktop shortcut.
+# The shortcut opens the user's default browser when that browser can load the extension.
 
 param(
     [ValidateSet("Ask", "Yes", "No")]
@@ -78,10 +79,28 @@ $manifest = Get-Content -Raw -Path $hostManifestPath | ConvertFrom-Json
 $manifest.path = $hostBat
 $manifest | ConvertTo-Json -Depth 4 | Set-Content -Path $hostManifestPath -Encoding ASCII
 
-$registryPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.sidera.mediator"
-New-Item -Path $registryPath -Force | Out-Null
-New-ItemProperty -Path $registryPath -Name "(default)" -Value $hostManifestPath -PropertyType String -Force | Out-Null
-Write-Host "Native messaging host registered: $hostManifestPath"
+# Keep this list in step with NativeHive in launch_silent.vbs and uninstall.ps1.
+$nativeHives = @(
+    "Software\Google\Chrome",
+    "Software\Google\Chrome Beta",
+    "Software\Google\Chrome Dev",
+    "Software\Google\Chrome SxS",
+    "Software\Microsoft\Edge",
+    "Software\Microsoft\Edge Beta",
+    "Software\Microsoft\Edge Dev",
+    "Software\Microsoft\Edge SxS",
+    "Software\BraveSoftware\Brave-Browser",
+    "Software\Vivaldi",
+    "Software\Opera Software\Opera Stable",
+    "Software\Opera Software\Opera GX Stable",
+    "Software\Chromium"
+)
+foreach ($hive in $nativeHives) {
+    $registryPath = "HKCU:\$hive\NativeMessagingHosts\com.sidera.mediator"
+    New-Item -Path $registryPath -Force | Out-Null
+    New-ItemProperty -Path $registryPath -Name "(default)" -Value $hostManifestPath -PropertyType String -Force | Out-Null
+}
+Write-Host "Native messaging host registered for Chrome, Edge, Brave, Vivaldi, Opera, and Chromium."
 
 $wscript = Join-Path $env:SystemRoot "System32\wscript.exe"
 $launcher = Join-Path $InstallRoot "launch_silent.vbs"
@@ -118,5 +137,6 @@ if ($wantDesktopIcon) {
 }
 
 Write-Host ""
-Write-Host "Done. Double-click Sidera Mediator. Chrome opens ChatGPT and Gemini with the extension loaded."
+Write-Host "Done. Double-click Sidera Mediator. Your default browser opens ChatGPT and Grok with the extension loaded."
+Write-Host "Supported browsers: Chrome, Edge, Brave, Vivaldi, and Opera. Firefox cannot load the extension."
 Write-Host "Extension ID pekgjaanmdkkpclhlobpcggibbkgjbgd"

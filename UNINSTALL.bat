@@ -4,7 +4,7 @@ cd /d "%~dp0"
 echo.
 echo  Sidera Mediator - uninstall
 echo  ---------------------------
-echo  Removes the program and its Chrome connection.
+echo  Removes the program and its browser connection.
 echo  Keeps C:\Sidera\data (memory, transcripts, logs) and config.toml.
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1" %*

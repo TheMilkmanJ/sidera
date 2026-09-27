@@ -5,7 +5,7 @@
 | component | licence | notes |
 | --- | --- | --- |
 | Python 3.11+ standard library | PSF License | `sqlite3`, `tomllib`, `hashlib`, `json`, `logging`; nothing installed with pip |
-| Google Chrome | Google Chrome Terms of Service | already on the machine; the extension uses standard MV3 APIs (`tabs`, `storage`, `nativeMessaging`, `debugger`) |
+| Chromium browser (Chrome, Edge, Brave, Vivaldi, or Opera) | that browser's own terms | the user's default browser when it is one of these; the extension uses standard MV3 APIs (`tabs`, `storage`, `nativeMessaging`, `debugger`) |
 
 The mediator and the extension have **no third-party runtime dependencies**. No paid
 model APIs are used; the AIs are reached through the user's own signed-in browser tabs.

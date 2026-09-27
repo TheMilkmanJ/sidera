@@ -4,7 +4,7 @@ cd /d "%~dp0"
 echo.
 echo  Sidera Mediator - one-step install
 echo  ----------------------------------
-echo  This copies Sidera to C:\Sidera, connects it to Chrome,
+echo  This copies Sidera to C:\Sidera, connects it to your default browser,
 echo  and offers a desktop icon. Nothing else to configure.
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup_prerequisites.ps1" %*

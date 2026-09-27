@@ -23,7 +23,7 @@ list tried in order, so add the new selector at the top and leave the old one be
 
 ## Finding the new selectors
 
-1. Open the site in Chrome, press F12, and use the element picker on:
+1. Open the site in the browser Sidera launched, press F12, and use the element picker on:
    - the newest assistant reply (`assistantMessage`, `messageContent`)
    - the newest user message (`userMessage`)
    - the composer (`composerTextarea`)
