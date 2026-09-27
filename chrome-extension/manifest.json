@@ -16,6 +16,7 @@
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://*.chatgpt.com/*",
+    "https://auth.openai.com/*",
     "https://x.com/*",
     "https://grok.com/*",
     "https://gemini.google.com/*"
@@ -32,6 +33,7 @@
       "matches": [
         "https://chatgpt.com/*",
         "https://*.chatgpt.com/*",
+        "https://auth.openai.com/*",
         "https://x.com/*",
         "https://grok.com/*",
         "https://gemini.google.com/*"

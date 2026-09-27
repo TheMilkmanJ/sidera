@@ -10,6 +10,12 @@ let autonomousSubmissions = true;
 // Set while Start is waiting for the operator to finish ChatGPT sign-in.
 let signInMessage = null;
 let loginWaitGeneration = 0;
+// Held only while a sign-in attempt is in progress. Never written to storage or status.
+let chatGptLogin = null;
+let loginFetchStarted = false;
+let noSavedLogin = false;
+const loginStatusWaiters = [];
+let loginSecretWaiter = null;
 const LOGIN_POLL_MS = 1500;
 const LOGIN_WAIT_MS = 10 * 60 * 1000;
 // Genesis Protocol text from the mediator; a tab that starts a fresh chat
@@ -68,7 +74,11 @@ function connectNative() {
   try {
     nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
     nativePort.onMessage.addListener((msg) => {
-      console.log("Received from Python mediator:", msg);
+      if (msg && (msg.type === "CHATGPT_LOGIN" || msg.type === "CHATGPT_LOGIN_STATUS")) {
+        console.log("Received from Python mediator:", msg.type);
+      } else {
+        console.log("Received from Python mediator:", msg);
+      }
       handleMediatorMessage(msg);
     });
     nativePort.onDisconnect.addListener(() => {
@@ -93,8 +103,23 @@ function sendToMediator(payload) {
   }
 }
 
+function settleLoginStatus(msg) {
+  const waiters = loginStatusWaiters.splice(0, loginStatusWaiters.length);
+  for (const waiter of waiters) waiter(msg);
+}
+
 function handleMediatorMessage(msg) {
   const type = msg.type;
+  if (type === "CHATGPT_LOGIN_STATUS") {
+    settleLoginStatus(msg);
+    return;
+  }
+  if (type === "CHATGPT_LOGIN") {
+    const waiter = loginSecretWaiter;
+    loginSecretWaiter = null;
+    if (waiter) waiter(msg);
+    return;
+  }
   if (type === "STATE_UPDATE" || type === "STATUS_RESPONSE") {
     currentMediatorState = msg.state;
     currentTurnCount = msg.turn_count || 0;
@@ -178,15 +203,64 @@ function authUrl(url) {
   return /https:\/\/auth\.openai\.com\//i.test(url || "") || /https:\/\/([^/]+\.)?chatgpt\.com\/auth/i.test(url || "");
 }
 
+function forgetLoginSecret() {
+  chatGptLogin = null;
+  loginFetchStarted = false;
+  loginSecretWaiter = null;
+  noSavedLogin = false;
+}
+
+function requestLoginSecret(done) {
+  loginSecretWaiter = done;
+  sendToMediator({ type: "GET_CHATGPT_LOGIN" });
+  setTimeout(() => {
+    if (loginSecretWaiter === done) {
+      loginSecretWaiter = null;
+      done({ saved: false });
+    }
+  }, 8000);
+}
+
+function deliverSavedLogin(tabId) {
+  const fill = (creds) => {
+    if (!creds || !creds.saved || !creds.password) return;
+    signInMessage = "Signing in to ChatGPT with the saved login...";
+    broadcastStatus();
+    chrome.tabs.sendMessage(tabId, {
+      type: "FILL_CHATGPT_LOGIN",
+      email: creds.email,
+      password: creds.password,
+    }, () => void chrome.runtime.lastError);
+  };
+  if (noSavedLogin) return;
+  if (chatGptLogin) {
+    fill(chatGptLogin);
+    return;
+  }
+  if (loginFetchStarted) return;
+  loginFetchStarted = true;
+  requestLoginSecret((msg) => {
+    loginFetchStarted = false;
+    if (msg && msg.saved && msg.password) {
+      chatGptLogin = { saved: true, email: msg.email, password: msg.password };
+      fill(chatGptLogin);
+    } else {
+      noSavedLogin = true;
+    }
+  });
+}
+
 // If the paired ChatGPT tab is signed out, open its login page and wait until
-// the composer is back. The account password stays in Chrome.
+// the composer is back. A saved login is typed into ChatGPT's own form.
 function ensureChatGptLogin(tabId, done) {
   const generation = ++loginWaitGeneration;
   const started = Date.now();
   let focused = false;
+  forgetLoginSecret();
 
   function finish(result) {
     if (generation !== loginWaitGeneration) return;
+    forgetLoginSecret();
     done(result);
   }
 
@@ -207,12 +281,15 @@ function ensureChatGptLogin(tabId, done) {
         return;
       }
       if (authUrl(tab.url)) {
-        signInMessage = "Sign in to ChatGPT in the browser. Sidera starts when the chat box is back.";
+        signInMessage = chatGptLogin
+          ? "Signing in to ChatGPT with the saved login..."
+          : "Sign in to ChatGPT in the browser. Sidera starts when the chat box is back.";
         if (!focused) {
           focused = true;
           chrome.tabs.update(tabId, { active: true });
           if (tab.windowId) chrome.windows.update(tab.windowId, { focused: true });
         }
+        deliverSavedLogin(tabId);
         broadcastStatus();
         setTimeout(poll, LOGIN_POLL_MS);
         return;
@@ -233,6 +310,7 @@ function ensureChatGptLogin(tabId, done) {
           chrome.tabs.update(tabId, { active: true });
           if (tab.windowId) chrome.windows.update(tab.windowId, { focused: true });
         }
+        deliverSavedLogin(tabId);
         broadcastStatus();
         setTimeout(poll, LOGIN_POLL_MS);
       });
@@ -350,6 +428,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     });
     return true;
+  } else if (reqType === "SAVE_CHATGPT_LOGIN" || reqType === "FORGET_CHATGPT_LOGIN" || reqType === "GET_CHATGPT_LOGIN_STATUS") {
+    loginStatusWaiters.push(sendResponse);
+    sendToMediator({
+      type: reqType,
+      email: request.email,
+      password: request.password,
+    });
+    setTimeout(() => {
+      const index = loginStatusWaiters.indexOf(sendResponse);
+      if (index === -1) return;
+      loginStatusWaiters.splice(index, 1);
+      sendResponse({ ok: false, saved: false, error: "The mediator is not running. Open Sidera from its icon, then try again." });
+    }, 8000);
+    return true;
   } else if (reqType === "START") {
     const left = slotRegistry.LEFT;
     if (!left || !left.tabId) {
@@ -383,6 +475,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendToMediator({ type: "RESUME" });
   } else if (reqType === "STOP") {
     loginWaitGeneration += 1;
+    forgetLoginSecret();
     signInMessage = null;
     sendToMediator({ type: "STOP" });
   } else if (reqType === "RESPONSE_CAPTURED" || reqType === "SUBMISSION_CONFIRMED" || reqType === "INJECTION_ERROR" || reqType === "SUBMISSION_STALLED") {

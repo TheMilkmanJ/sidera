@@ -32,6 +32,9 @@
     .setting-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
     .setting-row label { color: #94a3b8; flex: 1; }
     .setting-row input { width: 64px; padding: 5px 6px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #f8fafc; font-size: 12px; }
+    .hint { color: #94a3b8; font-size: 11px; line-height: 1.4; margin: 0 0 8px; }
+    .login-saved { color: #86efac; font-size: 12px; margin-bottom: 8px; }
+    .login-fields input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 6px 8px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #f8fafc; font-size: 12px; }
     .status-text { font-size: 11px; color: #94a3b8; text-align: center; margin-top: 6px; }
   </style>
 </head>
@@ -64,6 +67,18 @@
   <div class="btn-group">
     <button id="btnForwardLR" class="btn-quiet">LEFT &rarr; RIGHT</button>
     <button id="btnForwardRL" class="btn-quiet">RIGHT &rarr; LEFT</button>
+  </div>
+
+  <div class="section-title">ChatGPT login</div>
+  <p class="hint">Enter the ChatGPT email and password once. Sidera saves them on this PC, encrypted for this Windows account, and signs in with them whenever ChatGPT is logged out. A code or captcha, if ChatGPT asks, still needs you.</p>
+  <div id="loginSaved" class="login-saved"></div>
+  <div class="login-fields">
+    <input id="loginEmail" type="email" autocomplete="off" placeholder="Email">
+    <input id="loginPassword" type="password" autocomplete="new-password" placeholder="Password">
+  </div>
+  <div class="btn-group">
+    <button id="btnSaveLogin" class="btn-quiet">Save login</button>
+    <button id="btnForgetLogin" class="btn-quiet">Forget login</button>
   </div>
 
   <div class="section-title">Settings and files</div>

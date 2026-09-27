@@ -186,6 +186,59 @@
 
   // Signed-in ChatGPT is ready to paste. A login wall is opened once; the
   // page is then polled until the composer exists. The password is never read.
+  function loginField(kind) {
+    if (kind === "password") {
+      return SideraDom.queryFirst(['input[type="password"]', 'input[name="password"]', 'input[autocomplete="current-password"]'], { visible: true });
+    }
+    return SideraDom.queryFirst([
+      'input[type="email"]',
+      'input[name="email"]',
+      'input[name="username"]',
+      'input[autocomplete="username"]',
+    ], { visible: true });
+  }
+
+  function continueButton(from) {
+    const root = (from && from.closest && from.closest("form")) || document;
+    const nodes = root.querySelectorAll("button, input[type='submit']");
+    for (const el of nodes) {
+      const label = el.getAttribute("aria-label") || el.value || el.innerText || el.textContent || "";
+      if (!SideraSession.isContinueLabel(label)) continue;
+      if (!SideraDom.isVisible(el)) continue;
+      return el;
+    }
+    return null;
+  }
+
+  function fillChatGptLogin(email, password) {
+    if (!email || !password || typeof SideraSession === "undefined") return { filled: "skip" };
+    const emailField = loginField("email");
+    const passwordField = loginField("password");
+    const step = SideraSession.nextLoginStep({
+      emailVisible: !!emailField,
+      passwordVisible: !!passwordField,
+      emailFilled: document.documentElement.dataset.sideraEmailFilled === "1",
+      passwordFilled: document.documentElement.dataset.sideraPasswordFilled === "1",
+    });
+    const field = step === "password" ? passwordField : step === "email" ? emailField : null;
+    if (!field) return { filled: "wait" };
+    SideraDom.setComposerText(field, step === "password" ? password : email);
+    if (step === "password") document.documentElement.dataset.sideraPasswordFilled = "1";
+    else document.documentElement.dataset.sideraEmailFilled = "1";
+    const button = continueButton(field);
+    if (button) {
+      setTimeout(() => {
+        SideraDom.clickControl(button);
+        const rect = button.getBoundingClientRect();
+        chrome.runtime.sendMessage({
+          type: "TRUSTED_SUBMIT",
+          point: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+        }, () => void chrome.runtime.lastError);
+      }, 300);
+    }
+    return { filled: step };
+  }
+
   function ensureChatGptLogin() {
     const site = adapter();
     if (!site || site.name !== "ChatGPT" || typeof site.isLoggedIn !== "function") {
@@ -569,6 +622,8 @@
       sendResponse({ text: generating ? "" : currentAnswer(), generating: generating });
     } else if (msg.type === "ENSURE_CHATGPT_LOGIN") {
       sendResponse(ensureChatGptLogin());
+    } else if (msg.type === "FILL_CHATGPT_LOGIN") {
+      sendResponse(fillChatGptLogin(msg.email, msg.password));
     }
     return true;
   });

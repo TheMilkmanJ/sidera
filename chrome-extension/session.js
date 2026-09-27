@@ -25,6 +25,21 @@ const SideraSession = {
     return name === "log in" || name === "login" || name === "sign in" || name === "sign up";
   },
 
+  isContinueLabel(text) {
+    const name = String(text || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (name.startsWith("continue with") || name.startsWith("sign in with") || name.startsWith("log in with")) {
+      return false;
+    }
+    return name === "continue" || name === "log in" || name === "login" || name === "sign in";
+  },
+
+  // Which saved-login field to fill on this page. "wait" covers 2FA and captchas.
+  nextLoginStep({ emailVisible, passwordVisible, emailFilled, passwordFilled }) {
+    if (passwordVisible && !passwordFilled) return "password";
+    if (emailVisible && !passwordVisible && !emailFilled) return "email";
+    return "wait";
+  },
+
   // A usable composer with no login control means the account session is already there.
   needsLogin({ authUrl, hasComposer, loginControlVisible }) {
     if (authUrl) return true;

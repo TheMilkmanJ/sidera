@@ -18,6 +18,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnApplyMax = document.getElementById("btnApplyMax");
   const btnOpenData = document.getElementById("btnOpenData");
   const btnOpenLog = document.getElementById("btnOpenLog");
+  const loginEmail = document.getElementById("loginEmail");
+  const loginPassword = document.getElementById("loginPassword");
+  const loginSaved = document.getElementById("loginSaved");
+  const btnSaveLogin = document.getElementById("btnSaveLogin");
+  const btnForgetLogin = document.getElementById("btnForgetLogin");
 
   let maxTurnsTouched = false;
 
@@ -70,9 +75,22 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function showSavedLogin(resp) {
+    if (resp && resp.saved && resp.email) {
+      loginSaved.innerText = "Saved for " + resp.email;
+      loginEmail.value = resp.email;
+      loginPassword.value = "";
+      loginPassword.placeholder = "Saved — type a new password to replace it";
+    } else {
+      loginSaved.innerText = "";
+      loginPassword.placeholder = "Password";
+    }
+  }
+
   chrome.runtime.sendMessage({ type: "GET_STATUS" }, (resp) => {
     if (resp) updateUI(resp);
   });
+  chrome.runtime.sendMessage({ type: "GET_CHATGPT_LOGIN_STATUS" }, showSavedLogin);
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === "POPUP_STATUS_UPDATE") updateUI(msg);
@@ -143,6 +161,38 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.runtime.sendMessage({ type: "SET_MAX_TURNS", max_turns: value });
     maxTurnsTouched = false;
     statusMessage.innerText = `Maximum autonomous turns set to ${value}.`;
+  });
+
+  btnSaveLogin.addEventListener("click", () => {
+    const email = loginEmail.value.trim();
+    const password = loginPassword.value;
+    if (!email || !password) {
+      statusMessage.innerText = "Enter the ChatGPT email and password, then save.";
+      return;
+    }
+    statusMessage.innerText = "Saving the ChatGPT login on this PC...";
+    chrome.runtime.sendMessage({ type: "SAVE_CHATGPT_LOGIN", email: email, password: password }, (resp) => {
+      loginPassword.value = "";
+      if (resp && resp.ok && resp.saved) {
+        showSavedLogin(resp);
+        statusMessage.innerText = "ChatGPT login saved. Sidera will use it when that account is signed out.";
+      } else {
+        statusMessage.innerText = (resp && resp.error) || "Could not save the ChatGPT login.";
+      }
+    });
+  });
+
+  btnForgetLogin.addEventListener("click", () => {
+    chrome.runtime.sendMessage({ type: "FORGET_CHATGPT_LOGIN" }, (resp) => {
+      if (resp && resp.ok) {
+        loginEmail.value = "";
+        loginPassword.value = "";
+        showSavedLogin({ saved: false });
+        statusMessage.innerText = "Saved ChatGPT login removed from this PC.";
+      } else {
+        statusMessage.innerText = (resp && resp.error) || "Could not remove the saved login.";
+      }
+    });
   });
 
   btnOpenData.addEventListener("click", () => {

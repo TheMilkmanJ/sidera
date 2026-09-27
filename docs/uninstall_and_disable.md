@@ -27,8 +27,8 @@ Double-click `UNINSTALL.bat` (or run `powershell -File uninstall.ps1`). It remov
 - the native-messaging registration for Chrome, Edge, Brave, Vivaldi, Opera, and Chromium (`HKCU\...\NativeMessagingHosts\com.sidera.mediator`)
 - the Start menu and desktop shortcuts
 
-It never removes `C:\Sidera\data` (ledger, transcripts, logs, memory, files) or
-`config.toml`. Then, in the browser Sidera opened, open its extensions page and remove *Sidera
+It never removes `C:\Sidera\data` (ledger, transcripts, logs, memory, files, and the encrypted ChatGPT login) or
+`config.toml`. To delete the saved ChatGPT password without uninstalling, use **Forget login** in the extension popup. Then, in the browser Sidera opened, open its extensions page and remove *Sidera
 Dual-Hemisphere Mediator* if it is still listed.
 
 ## Reinstall later

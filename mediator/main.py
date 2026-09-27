@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from mediator.config import MediatorConfig, load_config
+from mediator.credential_store import ChatGptLoginStore, CredentialStoreError
 from mediator.file_sandbox import FileSandbox
 from mediator.ipc import NativeMessagingIPC
 from mediator.logging_config import setup_logging
@@ -87,6 +88,7 @@ class MediatorService:
         self.ledger = MessageLedger(self.root_dir / "ledger.sqlite")
         self.memory = MemoryStore(self.root_dir / "memory")
         self.sandbox = FileSandbox(self.root_dir / "files")
+        self.chatgpt_login = ChatGptLoginStore(self.root_dir / "credentials" / "chatgpt.bin")
         self.tag_parser = TagParser()
         self.ipc = NativeMessagingIPC()
 
@@ -353,11 +355,52 @@ class MediatorService:
         logs = sorted((self.root_dir / "logs").glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
         return logs[0] if logs else None
 
+    def _save_chatgpt_login(self, email: Any, password: Any) -> None:
+        try:
+            self.chatgpt_login.save(str(email or ""), str(password or ""))
+        except CredentialStoreError as err:
+            self.ipc.send_message({
+                "type": "CHATGPT_LOGIN_STATUS",
+                "ok": False,
+                "saved": False,
+                "email": "",
+                "error": str(err),
+            })
+            return
+        self.ipc.send_message({
+            "type": "CHATGPT_LOGIN_STATUS",
+            "ok": True,
+            "saved": True,
+            "email": str(email or "").strip(),
+        })
+
     def handle_message(self, packet: Dict[str, Any]):
         msg_type = packet.get("type", "").upper()
         logger.info(f"Handling incoming packet: {msg_type}")
 
-        if msg_type == "PING":
+        if msg_type == "SAVE_CHATGPT_LOGIN":
+            self._save_chatgpt_login(packet.get("email"), packet.get("password"))
+
+        elif msg_type == "FORGET_CHATGPT_LOGIN":
+            self.chatgpt_login.clear()
+            self.ipc.send_message({"type": "CHATGPT_LOGIN_STATUS", "ok": True, "saved": False, "email": ""})
+
+        elif msg_type == "GET_CHATGPT_LOGIN_STATUS":
+            self.ipc.send_message({"type": "CHATGPT_LOGIN_STATUS", "ok": True, **self.chatgpt_login.status()})
+
+        elif msg_type == "GET_CHATGPT_LOGIN":
+            record = self.chatgpt_login.load()
+            if not record:
+                self.ipc.send_message({"type": "CHATGPT_LOGIN", "saved": False})
+            else:
+                self.ipc.send_message({
+                    "type": "CHATGPT_LOGIN",
+                    "saved": True,
+                    "email": record["email"],
+                    "password": record["password"],
+                })
+
+        elif msg_type == "PING":
             self.ipc.send_message({"type": "PONG", "timestamp": datetime.now(timezone.utc).isoformat()})
 
         elif msg_type == "HOOK_SLOT":

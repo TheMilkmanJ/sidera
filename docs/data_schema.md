@@ -12,6 +12,7 @@ data/
   memory/<category>.jsonl  one JSON object per line, machine-readable
   memory/<category>.md     human-readable mirror of the same records
   files/…                  the sandboxed folder the AIs read and write
+  credentials/chatgpt.bin  the operator's ChatGPT login, DPAPI-encrypted on Windows
 ```
 
 ## ledger.sqlite
