@@ -95,7 +95,7 @@ class ChatGptLoginStore:
         if sys.platform == "win32":
             return _dpapi_protect, _dpapi_unprotect
         raise CredentialStoreError(
-            "A ChatGPT login can be saved on Windows, where it is encrypted for this user."
+            "A login can be saved on Windows, where it is encrypted for this user."
         )
 
     def save(self, email: str, password: str) -> None:
@@ -106,7 +106,7 @@ class ChatGptLoginStore:
         payload = json.dumps({"email": cleaned, "password": password}).encode("utf-8")
         sealed = protect(payload)
         if password.encode("utf-8") in sealed or cleaned.encode("utf-8") in sealed:
-            raise CredentialStoreError("Refusing to write the ChatGPT login without encryption.")
+            raise CredentialStoreError("Refusing to write the login without encryption.")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_bytes(sealed)
 

@@ -13,6 +13,7 @@ data/
   memory/<category>.md     human-readable mirror of the same records
   files/…                  the sandboxed folder the AIs read and write
   credentials/chatgpt.bin  the operator's ChatGPT login, DPAPI-encrypted on Windows
+  credentials/grok.bin     the operator's Grok login, DPAPI-encrypted on Windows
 ```
 
 ## ledger.sqlite

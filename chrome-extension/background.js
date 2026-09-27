@@ -74,7 +74,7 @@ function connectNative() {
   try {
     nativePort = chrome.runtime.connectNative(NATIVE_HOST_NAME);
     nativePort.onMessage.addListener((msg) => {
-      if (msg && (msg.type === "CHATGPT_LOGIN" || msg.type === "CHATGPT_LOGIN_STATUS")) {
+      if (msg && (msg.type === "ACCOUNT_LOGIN" || msg.type === "ACCOUNT_LOGIN_STATUS")) {
         console.log("Received from Python mediator:", msg.type);
       } else {
         console.log("Received from Python mediator:", msg);
@@ -110,11 +110,11 @@ function settleLoginStatus(msg) {
 
 function handleMediatorMessage(msg) {
   const type = msg.type;
-  if (type === "CHATGPT_LOGIN_STATUS") {
+  if (type === "ACCOUNT_LOGIN_STATUS") {
     settleLoginStatus(msg);
     return;
   }
-  if (type === "CHATGPT_LOGIN") {
+  if (type === "ACCOUNT_LOGIN") {
     const waiter = loginSecretWaiter;
     loginSecretWaiter = null;
     if (waiter) waiter(msg);
@@ -199,8 +199,25 @@ function broadcastStatus() {
   chrome.runtime.sendMessage({ type: "POPUP_STATUS_UPDATE", ...statusSnapshot() }).catch(() => {});
 }
 
-function authUrl(url) {
-  return /https:\/\/auth\.openai\.com\//i.test(url || "") || /https:\/\/([^/]+\.)?chatgpt\.com\/auth/i.test(url || "");
+const LOGIN_SITES = {
+  chatgpt: {
+    label: "ChatGPT",
+    auth(url) {
+      return /https:\/\/auth\.openai\.com\//i.test(url || "") || /https:\/\/([^/]+\.)?chatgpt\.com\/auth/i.test(url || "");
+    },
+  },
+  grok: {
+    label: "Grok",
+    auth(url) {
+      return /https:\/\/accounts\.x\.ai\//i.test(url || "")
+        || /https:\/\/([^/]+\.)?grok\.com\/(login|sign-in|auth)/i.test(url || "")
+        || /https:\/\/([^/]+\.)?x\.com\/(login|i\/flow\/login)/i.test(url || "");
+    },
+  },
+};
+
+function loginSite(service) {
+  return LOGIN_SITES[service] || LOGIN_SITES.chatgpt;
 }
 
 function forgetLoginSecret() {
@@ -210,9 +227,9 @@ function forgetLoginSecret() {
   noSavedLogin = false;
 }
 
-function requestLoginSecret(done) {
+function requestLoginSecret(service, done) {
   loginSecretWaiter = done;
-  sendToMediator({ type: "GET_CHATGPT_LOGIN" });
+  sendToMediator({ type: "GET_ACCOUNT_LOGIN", service: service });
   setTimeout(() => {
     if (loginSecretWaiter === done) {
       loginSecretWaiter = null;
@@ -221,28 +238,30 @@ function requestLoginSecret(done) {
   }, 8000);
 }
 
-function deliverSavedLogin(tabId) {
+function deliverSavedLogin(tabId, service) {
+  const label = loginSite(service).label;
   const fill = (creds) => {
     if (!creds || !creds.saved || !creds.password) return;
-    signInMessage = "Signing in to ChatGPT with the saved login...";
+    signInMessage = `Signing in to ${label} with the saved login...`;
     broadcastStatus();
     chrome.tabs.sendMessage(tabId, {
-      type: "FILL_CHATGPT_LOGIN",
+      type: "FILL_ACCOUNT_LOGIN",
+      service: service,
       email: creds.email,
       password: creds.password,
     }, () => void chrome.runtime.lastError);
   };
   if (noSavedLogin) return;
-  if (chatGptLogin) {
+  if (chatGptLogin && chatGptLogin.service === service) {
     fill(chatGptLogin);
     return;
   }
   if (loginFetchStarted) return;
   loginFetchStarted = true;
-  requestLoginSecret((msg) => {
+  requestLoginSecret(service, (msg) => {
     loginFetchStarted = false;
-    if (msg && msg.saved && msg.password) {
-      chatGptLogin = { saved: true, email: msg.email, password: msg.password };
+    if (msg && msg.saved && msg.password && (msg.service || service) === service) {
+      chatGptLogin = { saved: true, service: service, email: msg.email, password: msg.password };
       fill(chatGptLogin);
     } else {
       noSavedLogin = true;
@@ -250,9 +269,10 @@ function deliverSavedLogin(tabId) {
   });
 }
 
-// If the paired ChatGPT tab is signed out, open its login page and wait until
-// the composer is back. A saved login is typed into ChatGPT's own form.
-function ensureChatGptLogin(tabId, done) {
+// If a paired tab is signed out, open its login page and wait until the
+// composer is back. A saved login is typed into that site's own form.
+function ensureSiteLogin(tabId, service, done) {
+  const site = loginSite(service);
   const generation = ++loginWaitGeneration;
   const started = Date.now();
   let focused = false;
@@ -264,37 +284,40 @@ function ensureChatGptLogin(tabId, done) {
     done(result);
   }
 
+  function focusTab(tab) {
+    if (focused) return;
+    focused = true;
+    chrome.tabs.update(tabId, { active: true });
+    if (tab && tab.windowId) chrome.windows.update(tab.windowId, { focused: true });
+  }
+
   function poll() {
     if (generation !== loginWaitGeneration) return;
     if (Date.now() - started > LOGIN_WAIT_MS) {
-      finish({ ok: false, error: "ChatGPT is still signed out. Sign in in that tab, then press Start again." });
+      finish({ ok: false, error: `${site.label} is still signed out. Sign in in that tab, then press Start again.` });
       return;
     }
     chrome.tabs.get(tabId, (tab) => {
       if (generation !== loginWaitGeneration) return;
       if (chrome.runtime.lastError || !tab) {
-        finish({ ok: false, error: "The ChatGPT tab is no longer open." });
+        finish({ ok: false, error: `The ${site.label} tab is no longer open.` });
         return;
       }
       if (tab.status !== "complete") {
         setTimeout(poll, 500);
         return;
       }
-      if (authUrl(tab.url)) {
-        signInMessage = chatGptLogin
-          ? "Signing in to ChatGPT with the saved login..."
-          : "Sign in to ChatGPT in the browser. Sidera starts when the chat box is back.";
-        if (!focused) {
-          focused = true;
-          chrome.tabs.update(tabId, { active: true });
-          if (tab.windowId) chrome.windows.update(tab.windowId, { focused: true });
-        }
-        deliverSavedLogin(tabId);
+      if (site.auth(tab.url)) {
+        signInMessage = chatGptLogin && chatGptLogin.service === service
+          ? `Signing in to ${site.label} with the saved login...`
+          : `Sign in to ${site.label} in the browser. Sidera starts when the chat box is back.`;
+        focusTab(tab);
+        deliverSavedLogin(tabId, service);
         broadcastStatus();
         setTimeout(poll, LOGIN_POLL_MS);
         return;
       }
-      chrome.tabs.sendMessage(tabId, { type: "ENSURE_CHATGPT_LOGIN" }, (reply) => {
+      chrome.tabs.sendMessage(tabId, { type: "ENSURE_ACCOUNT_LOGIN", service: service }, (reply) => {
         if (generation !== loginWaitGeneration) return;
         if (chrome.runtime.lastError || !reply) {
           setTimeout(poll, LOGIN_POLL_MS);
@@ -304,13 +327,9 @@ function ensureChatGptLogin(tabId, done) {
           finish({ ok: true });
           return;
         }
-        signInMessage = "Sign in to ChatGPT in the browser. Sidera starts when the chat box is back.";
-        if (!focused) {
-          focused = true;
-          chrome.tabs.update(tabId, { active: true });
-          if (tab.windowId) chrome.windows.update(tab.windowId, { focused: true });
-        }
-        deliverSavedLogin(tabId);
+        signInMessage = `Sign in to ${site.label} in the browser. Sidera starts when the chat box is back.`;
+        focusTab(tab);
+        deliverSavedLogin(tabId, service);
         broadcastStatus();
         setTimeout(poll, LOGIN_POLL_MS);
       });
@@ -428,10 +447,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     });
     return true;
-  } else if (reqType === "SAVE_CHATGPT_LOGIN" || reqType === "FORGET_CHATGPT_LOGIN" || reqType === "GET_CHATGPT_LOGIN_STATUS") {
+  } else if (reqType === "SAVE_ACCOUNT_LOGIN" || reqType === "FORGET_ACCOUNT_LOGIN" || reqType === "GET_ACCOUNT_LOGIN_STATUS") {
     loginStatusWaiters.push(sendResponse);
     sendToMediator({
       type: reqType,
+      service: request.service,
       email: request.email,
       password: request.password,
     });
@@ -454,19 +474,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     signInMessage = "Checking the ChatGPT sign-in...";
     lastError = null;
     broadcastStatus();
-    ensureChatGptLogin(left.tabId, (result) => {
-      if (!result.ok) {
-        signInMessage = null;
-        lastError = result.error;
-        broadcastStatus();
-        sendResponse(result);
-        return;
-      }
+    const beginExchange = () => {
       signInMessage = null;
       lastError = null;
       sendToMediator({ type: "START", initial_hemisphere: request.initial_hemisphere || "LEFT" });
       broadcastStatus();
       sendResponse({ ok: true });
+    };
+    const fail = (result) => {
+      signInMessage = null;
+      lastError = result.error;
+      broadcastStatus();
+      sendResponse(result);
+    };
+    ensureSiteLogin(left.tabId, "chatgpt", (chatResult) => {
+      if (!chatResult.ok) {
+        fail(chatResult);
+        return;
+      }
+      const right = slotRegistry.RIGHT;
+      if (!right || !right.tabId || right.adapter === "gemini") {
+        beginExchange();
+        return;
+      }
+      signInMessage = "Checking the Grok sign-in...";
+      broadcastStatus();
+      ensureSiteLogin(right.tabId, "grok", (grokResult) => {
+        if (!grokResult.ok) fail(grokResult);
+        else beginExchange();
+      });
     });
     return true;
   } else if (reqType === "PAUSE") {

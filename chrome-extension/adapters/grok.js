@@ -138,6 +138,47 @@ const GrokAdapter = {
     const composer = SideraDom.queryFirst(this.selectors.composerTextarea, { visible: true });
     return composer !== null && !composer.disabled && composer.getAttribute("aria-disabled") !== "true" && !this.isGenerating();
   },
+  _controlName(el) {
+    return el.getAttribute("aria-label") || el.innerText || el.textContent || "";
+  },
+  loginControl() {
+    const nodes = document.querySelectorAll("a, button");
+    for (const el of nodes) {
+      if (!SideraSession.isLoginLabel(this._controlName(el))) continue;
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") continue;
+      return el;
+    }
+    return null;
+  },
+  emailField() {
+    return document.querySelector('input[type="email"], input[name="email"], input[name="username"], input[autocomplete="username"]');
+  },
+  isLoggedIn() {
+    if (typeof SideraSession === "undefined") return this.isComposerReady();
+    return !SideraSession.needsLogin({
+      authUrl: SideraSession.isGrokAuthUrl(window.location.href),
+      hasComposer: this.isComposerReady(),
+      loginControlVisible: this.loginControl() !== null,
+    });
+  },
+  openLogin() {
+    const email = this.emailField();
+    if (email) {
+      email.focus();
+      return "focus";
+    }
+    const control = this.loginControl();
+    if (control) {
+      SideraDom.clickControl(control);
+      return "click";
+    }
+    if (!SideraSession.isGrokAuthUrl(window.location.href)) {
+      window.location.assign("https://accounts.x.ai/sign-in");
+      return "navigate";
+    }
+    return "waiting";
+  },
   setComposerText(text) {
     const composer = SideraDom.queryFirst(this.selectors.composerTextarea, { visible: true });
     if (!composer) throw new Error("Grok composer not found.");

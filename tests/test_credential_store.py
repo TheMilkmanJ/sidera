@@ -45,33 +45,55 @@ class CredentialStoreTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             root = Path(tmp)
             service = MediatorService(root_dir=root, genesis_enabled=False, max_turns=5)
-            service.chatgpt_login = ChatGptLoginStore(
+            service.account_logins["chatgpt"] = ChatGptLoginStore(
                 root / "credentials" / "chatgpt.bin",
+                protect=protect,
+                unprotect=unprotect,
+            )
+            service.account_logins["grok"] = ChatGptLoginStore(
+                root / "credentials" / "grok.bin",
                 protect=protect,
                 unprotect=unprotect,
             )
             sent = []
             service.ipc.send_message = sent.append
             service.handle_message({
-                "type": "SAVE_CHATGPT_LOGIN",
+                "type": "SAVE_ACCOUNT_LOGIN",
+                "service": "chatgpt",
                 "email": "owner@example.com",
                 "password": "secret-value",
             })
-            self.assertEqual(sent[-1]["type"], "CHATGPT_LOGIN_STATUS")
+            self.assertEqual(sent[-1]["type"], "ACCOUNT_LOGIN_STATUS")
+            self.assertEqual(sent[-1]["service"], "chatgpt")
             self.assertTrue(sent[-1]["saved"])
             self.assertNotIn("password", sent[-1])
             self.assertNotIn("secret-value", json.dumps(sent[-1]))
 
             sent.clear()
-            service.handle_message({"type": "GET_CHATGPT_LOGIN"})
+            service.handle_message({
+                "type": "SAVE_ACCOUNT_LOGIN",
+                "service": "grok",
+                "email": "grok@example.com",
+                "password": "grok-secret",
+            })
+            self.assertEqual(service.account_logins["chatgpt"].load()["password"], "secret-value")
+            self.assertEqual(service.account_logins["grok"].load()["email"], "grok@example.com")
+
+            sent.clear()
+            service.handle_message({"type": "GET_ACCOUNT_LOGIN", "service": "chatgpt"})
             self.assertEqual(sent[-1]["password"], "secret-value")
 
             sent.clear()
-            service.handle_message({"type": "GET_CHATGPT_LOGIN_STATUS"})
+            service.handle_message({"type": "GET_ACCOUNT_LOGIN_STATUS", "service": "grok"})
             self.assertNotIn("password", sent[-1])
+            self.assertEqual(sent[-1]["email"], "grok@example.com")
 
-            service.handle_message({"type": "FORGET_CHATGPT_LOGIN"})
-            self.assertFalse(service.chatgpt_login.status()["saved"])
+            service.handle_message({"type": "SAVE_ACCOUNT_LOGIN", "service": "chatgpt", "email": "owner@example.com", "password": "replaced-secret"})
+            self.assertEqual(service.account_logins["chatgpt"].load()["password"], "replaced-secret")
+
+            service.handle_message({"type": "FORGET_ACCOUNT_LOGIN", "service": "chatgpt"})
+            self.assertFalse(service.account_logins["chatgpt"].status()["saved"])
+            self.assertTrue(service.account_logins["grok"].status()["saved"])
 
 
 if __name__ == "__main__":

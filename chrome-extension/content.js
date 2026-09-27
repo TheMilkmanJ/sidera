@@ -210,7 +210,7 @@
     return null;
   }
 
-  function fillChatGptLogin(email, password) {
+  function fillAccountLogin(email, password) {
     if (!email || !password || typeof SideraSession === "undefined") return { filled: "skip" };
     const emailField = loginField("email");
     const passwordField = loginField("password");
@@ -239,9 +239,10 @@
     return { filled: step };
   }
 
-  function ensureChatGptLogin() {
+  function ensureAccountLogin(service) {
+    const expected = service === "grok" ? "Grok" : "ChatGPT";
     const site = adapter();
-    if (!site || site.name !== "ChatGPT" || typeof site.isLoggedIn !== "function") {
+    if (!site || site.name !== expected || typeof site.isLoggedIn !== "function") {
       return { loggedIn: true, skipped: true };
     }
     if (site.isLoggedIn()) {
@@ -250,7 +251,7 @@
       return { loggedIn: true };
     }
     const tries = Number(document.documentElement.dataset.sideraLoginTries || 0);
-    const onAuth = typeof SideraSession !== "undefined" && SideraSession.isAuthUrl(window.location.href);
+    const onAuth = typeof SideraSession !== "undefined" && SideraSession.isServiceAuthUrl(service, window.location.href);
     const wall = onAuth || site.loginControl();
     if (wall || tries >= 6) {
       if (document.documentElement.dataset.sideraLoginOpened !== "1") {
@@ -620,10 +621,10 @@
       const site = adapter();
       const generating = !!(site && site.isGenerating());
       sendResponse({ text: generating ? "" : currentAnswer(), generating: generating });
-    } else if (msg.type === "ENSURE_CHATGPT_LOGIN") {
-      sendResponse(ensureChatGptLogin());
-    } else if (msg.type === "FILL_CHATGPT_LOGIN") {
-      sendResponse(fillChatGptLogin(msg.email, msg.password));
+    } else if (msg.type === "ENSURE_ACCOUNT_LOGIN" || msg.type === "ENSURE_CHATGPT_LOGIN") {
+      sendResponse(ensureAccountLogin(msg.service || "chatgpt"));
+    } else if (msg.type === "FILL_ACCOUNT_LOGIN" || msg.type === "FILL_CHATGPT_LOGIN") {
+      sendResponse(fillAccountLogin(msg.email, msg.password));
     }
     return true;
   });

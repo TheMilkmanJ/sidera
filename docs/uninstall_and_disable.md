@@ -28,7 +28,7 @@ Double-click `UNINSTALL.bat` (or run `powershell -File uninstall.ps1`). It remov
 - the Start menu and desktop shortcuts
 
 It never removes `C:\Sidera\data` (ledger, transcripts, logs, memory, files, and the encrypted ChatGPT login) or
-`config.toml`. To delete the saved ChatGPT password without uninstalling, use **Forget login** in the extension popup. Then, in the browser Sidera opened, open its extensions page and remove *Sidera
+`config.toml`. To delete a saved ChatGPT or Grok password without uninstalling, choose that account and **Forget login** in the extension popup. Then, in the browser Sidera opened, open its extensions page and remove *Sidera
 Dual-Hemisphere Mediator* if it is still listed.
 
 ## Reinstall later

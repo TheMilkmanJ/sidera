@@ -21,8 +21,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const loginEmail = document.getElementById("loginEmail");
   const loginPassword = document.getElementById("loginPassword");
   const loginSaved = document.getElementById("loginSaved");
-  const btnSaveLogin = document.getElementById("btnSaveLogin");
-  const btnForgetLogin = document.getElementById("btnForgetLogin");
+  const loginService = document.getElementById("loginService");
+  const loginAction = document.getElementById("loginAction");
+  const btnApplyLogin = document.getElementById("btnApplyLogin");
+  const savedLogins = { chatgpt: { saved: false, email: "" }, grok: { saved: false, email: "" } };
+
+  function serviceName() {
+    return loginService.value === "grok" ? "grok" : "chatgpt";
+  }
+
+  function serviceLabel(service) {
+    return service === "grok" ? "Grok" : "ChatGPT";
+  }
 
   let maxTurnsTouched = false;
 
@@ -75,22 +85,43 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function showSavedLogin(resp) {
-    if (resp && resp.saved && resp.email) {
-      loginSaved.innerText = "Saved for " + resp.email;
-      loginEmail.value = resp.email;
-      loginPassword.value = "";
-      loginPassword.placeholder = "Saved — type a new password to replace it";
+  function showLoginForm() {
+    const service = serviceName();
+    const saved = savedLogins[service] || { saved: false, email: "" };
+    const action = loginAction.value;
+    loginSaved.innerText = saved.saved && saved.email
+      ? serviceLabel(service) + " saved for " + saved.email
+      : serviceLabel(service) + " has no saved login.";
+    const showEmail = action === "save" || action === "password";
+    const showPassword = action === "save" || action === "password";
+    loginEmail.style.display = showEmail ? "block" : "none";
+    loginPassword.style.display = showPassword ? "block" : "none";
+    if (action === "forget") {
+      btnApplyLogin.innerText = "Forget login";
+    } else if (action === "password") {
+      btnApplyLogin.innerText = "Change password";
+      loginPassword.placeholder = "New password";
+      if (saved.email) loginEmail.value = saved.email;
     } else {
-      loginSaved.innerText = "";
+      btnApplyLogin.innerText = "Save login";
       loginPassword.placeholder = "Password";
     }
+  }
+
+  function loadLoginStatus(service) {
+    chrome.runtime.sendMessage({ type: "GET_ACCOUNT_LOGIN_STATUS", service: service }, (resp) => {
+      if (!resp || resp.service !== service) return;
+      savedLogins[service] = { saved: !!resp.saved, email: resp.email || "" };
+      if (serviceName() === service) showLoginForm();
+    });
   }
 
   chrome.runtime.sendMessage({ type: "GET_STATUS" }, (resp) => {
     if (resp) updateUI(resp);
   });
-  chrome.runtime.sendMessage({ type: "GET_CHATGPT_LOGIN_STATUS" }, showSavedLogin);
+  loadLoginStatus("chatgpt");
+  loadLoginStatus("grok");
+  showLoginForm();
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === "POPUP_STATUS_UPDATE") updateUI(msg);
@@ -118,7 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
         statusMessage.innerText = resp.error || "Could not start.";
       }
     });
-    statusMessage.innerText = "Checking ChatGPT, then teaching the protocol.";
+    statusMessage.innerText = "Checking ChatGPT and Grok, then teaching the protocol.";
   });
 
   btnPause.addEventListener("click", () => {
@@ -163,34 +194,61 @@ document.addEventListener("DOMContentLoaded", () => {
     statusMessage.innerText = `Maximum autonomous turns set to ${value}.`;
   });
 
-  btnSaveLogin.addEventListener("click", () => {
+  loginService.addEventListener("change", () => {
+    loginPassword.value = "";
+    const saved = savedLogins[serviceName()];
+    loginEmail.value = saved && saved.email ? saved.email : "";
+    showLoginForm();
+  });
+  loginAction.addEventListener("change", () => {
+    loginPassword.value = "";
+    showLoginForm();
+  });
+
+  btnApplyLogin.addEventListener("click", () => {
+    const service = serviceName();
+    const label = serviceLabel(service);
+    const action = loginAction.value;
+    if (action === "forget") {
+      chrome.runtime.sendMessage({ type: "FORGET_ACCOUNT_LOGIN", service: service }, (resp) => {
+        if (resp && resp.ok) {
+          savedLogins[service] = { saved: false, email: "" };
+          loginEmail.value = "";
+          loginPassword.value = "";
+          showLoginForm();
+          statusMessage.innerText = label + " login removed from this PC.";
+        } else {
+          statusMessage.innerText = (resp && resp.error) || "Could not remove the saved login.";
+        }
+      });
+      return;
+    }
+    const saved = savedLogins[service] || { saved: false, email: "" };
+    if (action === "password" && !saved.saved) {
+      statusMessage.innerText = "Save a " + label + " login first. Then Change password can replace it.";
+      return;
+    }
     const email = loginEmail.value.trim();
     const password = loginPassword.value;
     if (!email || !password) {
-      statusMessage.innerText = "Enter the ChatGPT email and password, then save.";
+      statusMessage.innerText = action === "password"
+        ? "Enter the new " + label + " password."
+        : "Enter the " + label + " email and password.";
       return;
     }
-    statusMessage.innerText = "Saving the ChatGPT login on this PC...";
-    chrome.runtime.sendMessage({ type: "SAVE_CHATGPT_LOGIN", email: email, password: password }, (resp) => {
+    statusMessage.innerText = action === "password"
+      ? "Updating the " + label + " password..."
+      : "Saving the " + label + " login on this PC...";
+    chrome.runtime.sendMessage({ type: "SAVE_ACCOUNT_LOGIN", service: service, email: email, password: password }, (resp) => {
       loginPassword.value = "";
-      if (resp && resp.ok && resp.saved) {
-        showSavedLogin(resp);
-        statusMessage.innerText = "ChatGPT login saved. Sidera will use it when that account is signed out.";
+      if (resp && resp.ok && resp.saved && resp.service === service) {
+        savedLogins[service] = { saved: true, email: resp.email || email };
+        showLoginForm();
+        statusMessage.innerText = action === "password"
+          ? label + " password updated."
+          : label + " login saved. Sidera will use it when that account is signed out.";
       } else {
-        statusMessage.innerText = (resp && resp.error) || "Could not save the ChatGPT login.";
-      }
-    });
-  });
-
-  btnForgetLogin.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "FORGET_CHATGPT_LOGIN" }, (resp) => {
-      if (resp && resp.ok) {
-        loginEmail.value = "";
-        loginPassword.value = "";
-        showSavedLogin({ saved: false });
-        statusMessage.innerText = "Saved ChatGPT login removed from this PC.";
-      } else {
-        statusMessage.innerText = (resp && resp.error) || "Could not remove the saved login.";
+        statusMessage.innerText = (resp && resp.error) || "Could not save the login.";
       }
     });
   });

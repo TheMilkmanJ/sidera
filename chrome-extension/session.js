@@ -20,6 +20,29 @@ const SideraSession = {
     return false;
   },
 
+  isGrokAuthUrl(url) {
+    let parsed;
+    try {
+      parsed = new URL(String(url || ""));
+    } catch (err) {
+      return false;
+    }
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    if (host === "accounts.x.ai" || host.endsWith(".accounts.x.ai")) return true;
+    if (host === "grok.com" || host.endsWith(".grok.com")) {
+      return path.startsWith("/login") || path.startsWith("/sign-in") || path.startsWith("/auth");
+    }
+    if (host === "x.com" || host.endsWith(".x.com")) {
+      return path.startsWith("/login") || path.startsWith("/i/flow/login");
+    }
+    return false;
+  },
+
+  isServiceAuthUrl(service, url) {
+    return service === "grok" ? this.isGrokAuthUrl(url) : this.isAuthUrl(url);
+  },
+
   isLoginLabel(text) {
     const name = String(text || "").replace(/\s+/g, " ").trim().toLowerCase();
     return name === "log in" || name === "login" || name === "sign in" || name === "sign up";

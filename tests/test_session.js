@@ -13,6 +13,11 @@ assert.equal(isAuthUrl("https://auth.openai.com/log-in"), true);
 assert.equal(isAuthUrl("https://chatgpt.com/auth/login"), true);
 assert.equal(isAuthUrl("https://chatgpt.com/c/abc"), false);
 assert.equal(isAuthUrl("https://grok.com/"), false);
+assert.equal(context.globalThis.SideraSession.isGrokAuthUrl("https://accounts.x.ai/sign-in"), true);
+assert.equal(context.globalThis.SideraSession.isGrokAuthUrl("https://x.com/i/flow/login"), true);
+assert.equal(context.globalThis.SideraSession.isGrokAuthUrl("https://grok.com/"), false);
+assert.equal(context.globalThis.SideraSession.isServiceAuthUrl("grok", "https://accounts.x.ai/sign-in"), true);
+assert.equal(context.globalThis.SideraSession.isServiceAuthUrl("chatgpt", "https://accounts.x.ai/sign-in"), false);
 assert.equal(isAuthUrl("not a url"), false);
 
 assert.equal(isLoginLabel("Log in"), true);

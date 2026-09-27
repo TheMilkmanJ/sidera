@@ -19,6 +19,7 @@
     "https://auth.openai.com/*",
     "https://x.com/*",
     "https://grok.com/*",
+    "https://accounts.x.ai/*",
     "https://gemini.google.com/*"
   ],
   "action": {
@@ -36,6 +37,7 @@
         "https://auth.openai.com/*",
         "https://x.com/*",
         "https://grok.com/*",
+        "https://accounts.x.ai/*",
         "https://gemini.google.com/*"
       ],
       "js": [

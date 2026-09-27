@@ -34,7 +34,7 @@
     .setting-row input { width: 64px; padding: 5px 6px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #f8fafc; font-size: 12px; }
     .hint { color: #94a3b8; font-size: 11px; line-height: 1.4; margin: 0 0 8px; }
     .login-saved { color: #86efac; font-size: 12px; margin-bottom: 8px; }
-    .login-fields input { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 6px 8px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #f8fafc; font-size: 12px; }
+    .login-fields input, .login-fields select { width: 100%; box-sizing: border-box; margin-bottom: 8px; padding: 6px 8px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #f8fafc; font-size: 12px; }
     .status-text { font-size: 11px; color: #94a3b8; text-align: center; margin-top: 6px; }
   </style>
 </head>
@@ -69,16 +69,24 @@
     <button id="btnForwardRL" class="btn-quiet">RIGHT &rarr; LEFT</button>
   </div>
 
-  <div class="section-title">ChatGPT login</div>
-  <p class="hint">Enter the ChatGPT email and password once. Sidera saves them on this PC, encrypted for this Windows account, and signs in with them whenever ChatGPT is logged out. A code or captcha, if ChatGPT asks, still needs you.</p>
+  <div class="section-title">Saved logins</div>
+  <p class="hint">Save a ChatGPT or Grok login once. Pick Change password in the menu to replace it. Sidera stores each login on this PC, encrypted for this Windows account, and uses it when that site is signed out. A code or captcha still needs you.</p>
   <div id="loginSaved" class="login-saved"></div>
   <div class="login-fields">
+    <select id="loginService">
+      <option value="chatgpt">ChatGPT</option>
+      <option value="grok">Grok</option>
+    </select>
+    <select id="loginAction">
+      <option value="save">Save login</option>
+      <option value="password">Change password</option>
+      <option value="forget">Forget login</option>
+    </select>
     <input id="loginEmail" type="email" autocomplete="off" placeholder="Email">
     <input id="loginPassword" type="password" autocomplete="new-password" placeholder="Password">
   </div>
   <div class="btn-group">
-    <button id="btnSaveLogin" class="btn-quiet">Save login</button>
-    <button id="btnForgetLogin" class="btn-quiet">Forget login</button>
+    <button id="btnApplyLogin" class="btn-quiet">Apply</button>
   </div>
 
   <div class="section-title">Settings and files</div>

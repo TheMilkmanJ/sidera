@@ -88,7 +88,10 @@ class MediatorService:
         self.ledger = MessageLedger(self.root_dir / "ledger.sqlite")
         self.memory = MemoryStore(self.root_dir / "memory")
         self.sandbox = FileSandbox(self.root_dir / "files")
-        self.chatgpt_login = ChatGptLoginStore(self.root_dir / "credentials" / "chatgpt.bin")
+        self.account_logins = {
+            "chatgpt": ChatGptLoginStore(self.root_dir / "credentials" / "chatgpt.bin"),
+            "grok": ChatGptLoginStore(self.root_dir / "credentials" / "grok.bin"),
+        }
         self.tag_parser = TagParser()
         self.ipc = NativeMessagingIPC()
 
@@ -355,22 +358,32 @@ class MediatorService:
         logs = sorted((self.root_dir / "logs").glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
         return logs[0] if logs else None
 
-    def _save_chatgpt_login(self, email: Any, password: Any) -> None:
+    def _account_store(self, service: Any):
+        key = str(service or "").strip().lower()
+        store = self.account_logins.get(key)
+        if store is None:
+            raise CredentialStoreError("Choose ChatGPT or Grok.")
+        return key, store
+
+    def _save_account_login(self, service: Any, email: Any, password: Any) -> None:
         try:
-            self.chatgpt_login.save(str(email or ""), str(password or ""))
+            key, store = self._account_store(service)
+            store.save(str(email or ""), str(password or ""))
         except CredentialStoreError as err:
             self.ipc.send_message({
-                "type": "CHATGPT_LOGIN_STATUS",
+                "type": "ACCOUNT_LOGIN_STATUS",
                 "ok": False,
                 "saved": False,
+                "service": str(service or "").strip().lower(),
                 "email": "",
                 "error": str(err),
             })
             return
         self.ipc.send_message({
-            "type": "CHATGPT_LOGIN_STATUS",
+            "type": "ACCOUNT_LOGIN_STATUS",
             "ok": True,
             "saved": True,
+            "service": key,
             "email": str(email or "").strip(),
         })
 
@@ -378,27 +391,68 @@ class MediatorService:
         msg_type = packet.get("type", "").upper()
         logger.info(f"Handling incoming packet: {msg_type}")
 
-        if msg_type == "SAVE_CHATGPT_LOGIN":
-            self._save_chatgpt_login(packet.get("email"), packet.get("password"))
+        if msg_type == "SAVE_ACCOUNT_LOGIN":
+            self._save_account_login(packet.get("service"), packet.get("email"), packet.get("password"))
 
-        elif msg_type == "FORGET_CHATGPT_LOGIN":
-            self.chatgpt_login.clear()
-            self.ipc.send_message({"type": "CHATGPT_LOGIN_STATUS", "ok": True, "saved": False, "email": ""})
+        elif msg_type == "FORGET_ACCOUNT_LOGIN":
+            try:
+                key, store = self._account_store(packet.get("service"))
+            except CredentialStoreError as err:
+                self.ipc.send_message({
+                    "type": "ACCOUNT_LOGIN_STATUS",
+                    "ok": False,
+                    "saved": False,
+                    "service": str(packet.get("service") or "").strip().lower(),
+                    "email": "",
+                    "error": str(err),
+                })
+            else:
+                store.clear()
+                self.ipc.send_message({
+                    "type": "ACCOUNT_LOGIN_STATUS",
+                    "ok": True,
+                    "saved": False,
+                    "service": key,
+                    "email": "",
+                })
 
-        elif msg_type == "GET_CHATGPT_LOGIN_STATUS":
-            self.ipc.send_message({"type": "CHATGPT_LOGIN_STATUS", "ok": True, **self.chatgpt_login.status()})
-
-        elif msg_type == "GET_CHATGPT_LOGIN":
-            record = self.chatgpt_login.load()
-            if not record:
-                self.ipc.send_message({"type": "CHATGPT_LOGIN", "saved": False})
+        elif msg_type == "GET_ACCOUNT_LOGIN_STATUS":
+            try:
+                key, store = self._account_store(packet.get("service"))
+            except CredentialStoreError as err:
+                self.ipc.send_message({
+                    "type": "ACCOUNT_LOGIN_STATUS",
+                    "ok": False,
+                    "saved": False,
+                    "service": str(packet.get("service") or "").strip().lower(),
+                    "email": "",
+                    "error": str(err),
+                })
             else:
                 self.ipc.send_message({
-                    "type": "CHATGPT_LOGIN",
-                    "saved": True,
-                    "email": record["email"],
-                    "password": record["password"],
+                    "type": "ACCOUNT_LOGIN_STATUS",
+                    "ok": True,
+                    "service": key,
+                    **store.status(),
                 })
+
+        elif msg_type == "GET_ACCOUNT_LOGIN":
+            try:
+                key, store = self._account_store(packet.get("service"))
+            except CredentialStoreError:
+                self.ipc.send_message({"type": "ACCOUNT_LOGIN", "saved": False, "service": ""})
+            else:
+                record = store.load()
+                if not record:
+                    self.ipc.send_message({"type": "ACCOUNT_LOGIN", "saved": False, "service": key})
+                else:
+                    self.ipc.send_message({
+                        "type": "ACCOUNT_LOGIN",
+                        "saved": True,
+                        "service": key,
+                        "email": record["email"],
+                        "password": record["password"],
+                    })
 
         elif msg_type == "PING":
             self.ipc.send_message({"type": "PONG", "timestamp": datetime.now(timezone.utc).isoformat()})
