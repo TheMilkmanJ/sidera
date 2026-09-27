@@ -10,7 +10,8 @@
     "storage",
     "scripting",
     "nativeMessaging",
-    "debugger"
+    "debugger",
+    "windows"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -38,6 +39,7 @@
       "js": [
         "dom_utils.js",
         "completion.js",
+        "session.js",
         "adapters/chatgpt.js",
         "adapters/gemini.js",
         "adapters/grok.js",

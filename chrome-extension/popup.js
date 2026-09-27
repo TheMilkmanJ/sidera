@@ -48,6 +48,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (data.maxTurns && !maxTurnsTouched) maxTurnsInput.value = data.maxTurns;
+    if (data.signInMessage) statusMessage.innerText = data.signInMessage;
 
     if (data.leftPaired) {
       btnPairLeft.classList.add("paired");
@@ -94,8 +95,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   btnStart.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "START", initial_hemisphere: "LEFT" });
-    statusMessage.innerText = "Teaching the protocol, then waiting for your first message in LEFT.";
+    chrome.runtime.sendMessage({ type: "START", initial_hemisphere: "LEFT" }, (resp) => {
+      if (resp && resp.ok === false) {
+        statusMessage.innerText = resp.error || "Could not start.";
+      }
+    });
+    statusMessage.innerText = "Checking ChatGPT, then teaching the protocol.";
   });
 
   btnPause.addEventListener("click", () => {

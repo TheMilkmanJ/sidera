@@ -7,6 +7,11 @@ let lastMessageId = null;
 let lastError = null;
 let maxTurns = null;
 let autonomousSubmissions = true;
+// Set while Start is waiting for the operator to finish ChatGPT sign-in.
+let signInMessage = null;
+let loginWaitGeneration = 0;
+const LOGIN_POLL_MS = 1500;
+const LOGIN_WAIT_MS = 10 * 60 * 1000;
 // Genesis Protocol text from the mediator; a tab that starts a fresh chat
 // re-teaches it before continuing.
 let genesisText = "";
@@ -157,6 +162,7 @@ function statusSnapshot() {
     lastMessageId: lastMessageId,
     lastError: lastError,
     autonomousSubmissions: autonomousSubmissions,
+    signInMessage: signInMessage,
     leftPaired: !!slotRegistry.LEFT.tabId,
     rightPaired: !!slotRegistry.RIGHT.tabId,
     slots: slotRegistry,
@@ -166,6 +172,74 @@ function statusSnapshot() {
 
 function broadcastStatus() {
   chrome.runtime.sendMessage({ type: "POPUP_STATUS_UPDATE", ...statusSnapshot() }).catch(() => {});
+}
+
+function authUrl(url) {
+  return /https:\/\/auth\.openai\.com\//i.test(url || "") || /https:\/\/([^/]+\.)?chatgpt\.com\/auth/i.test(url || "");
+}
+
+// If the paired ChatGPT tab is signed out, open its login page and wait until
+// the composer is back. The account password stays in Chrome.
+function ensureChatGptLogin(tabId, done) {
+  const generation = ++loginWaitGeneration;
+  const started = Date.now();
+  let focused = false;
+
+  function finish(result) {
+    if (generation !== loginWaitGeneration) return;
+    done(result);
+  }
+
+  function poll() {
+    if (generation !== loginWaitGeneration) return;
+    if (Date.now() - started > LOGIN_WAIT_MS) {
+      finish({ ok: false, error: "ChatGPT is still signed out. Sign in in that tab, then press Start again." });
+      return;
+    }
+    chrome.tabs.get(tabId, (tab) => {
+      if (generation !== loginWaitGeneration) return;
+      if (chrome.runtime.lastError || !tab) {
+        finish({ ok: false, error: "The ChatGPT tab is no longer open." });
+        return;
+      }
+      if (tab.status !== "complete") {
+        setTimeout(poll, 500);
+        return;
+      }
+      if (authUrl(tab.url)) {
+        signInMessage = "Sign in to ChatGPT in the browser. Sidera starts when the chat box is back.";
+        if (!focused) {
+          focused = true;
+          chrome.tabs.update(tabId, { active: true });
+          if (tab.windowId) chrome.windows.update(tab.windowId, { focused: true });
+        }
+        broadcastStatus();
+        setTimeout(poll, LOGIN_POLL_MS);
+        return;
+      }
+      chrome.tabs.sendMessage(tabId, { type: "ENSURE_CHATGPT_LOGIN" }, (reply) => {
+        if (generation !== loginWaitGeneration) return;
+        if (chrome.runtime.lastError || !reply) {
+          setTimeout(poll, LOGIN_POLL_MS);
+          return;
+        }
+        if (reply.loggedIn) {
+          finish({ ok: true });
+          return;
+        }
+        signInMessage = "Sign in to ChatGPT in the browser. Sidera starts when the chat box is back.";
+        if (!focused) {
+          focused = true;
+          chrome.tabs.update(tabId, { active: true });
+          if (tab.windowId) chrome.windows.update(tab.windowId, { focused: true });
+        }
+        broadcastStatus();
+        setTimeout(poll, LOGIN_POLL_MS);
+      });
+    });
+  }
+
+  poll();
 }
 
 // Manual Forward: read the newest completed reply from one paired tab and
@@ -277,12 +351,39 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true;
   } else if (reqType === "START") {
-    sendToMediator({ type: "START", initial_hemisphere: request.initial_hemisphere || "LEFT" });
+    const left = slotRegistry.LEFT;
+    if (!left || !left.tabId) {
+      signInMessage = null;
+      lastError = "Pair the ChatGPT tab as LEFT before starting.";
+      broadcastStatus();
+      sendResponse({ ok: false, error: lastError });
+      return true;
+    }
+    signInMessage = "Checking the ChatGPT sign-in...";
+    lastError = null;
+    broadcastStatus();
+    ensureChatGptLogin(left.tabId, (result) => {
+      if (!result.ok) {
+        signInMessage = null;
+        lastError = result.error;
+        broadcastStatus();
+        sendResponse(result);
+        return;
+      }
+      signInMessage = null;
+      lastError = null;
+      sendToMediator({ type: "START", initial_hemisphere: request.initial_hemisphere || "LEFT" });
+      broadcastStatus();
+      sendResponse({ ok: true });
+    });
+    return true;
   } else if (reqType === "PAUSE") {
     sendToMediator({ type: "PAUSE", reason: "User paused from extension popup" });
   } else if (reqType === "RESUME") {
     sendToMediator({ type: "RESUME" });
   } else if (reqType === "STOP") {
+    loginWaitGeneration += 1;
+    signInMessage = null;
     sendToMediator({ type: "STOP" });
   } else if (reqType === "RESPONSE_CAPTURED" || reqType === "SUBMISSION_CONFIRMED" || reqType === "INJECTION_ERROR" || reqType === "SUBMISSION_STALLED") {
     sendToMediator(request);

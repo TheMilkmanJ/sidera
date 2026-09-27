@@ -184,6 +184,32 @@
     heartbeatTimer = null;
   }
 
+  // Signed-in ChatGPT is ready to paste. A login wall is opened once; the
+  // page is then polled until the composer exists. The password is never read.
+  function ensureChatGptLogin() {
+    const site = adapter();
+    if (!site || site.name !== "ChatGPT" || typeof site.isLoggedIn !== "function") {
+      return { loggedIn: true, skipped: true };
+    }
+    if (site.isLoggedIn()) {
+      delete document.documentElement.dataset.sideraLoginOpened;
+      delete document.documentElement.dataset.sideraLoginTries;
+      return { loggedIn: true };
+    }
+    const tries = Number(document.documentElement.dataset.sideraLoginTries || 0);
+    const onAuth = typeof SideraSession !== "undefined" && SideraSession.isAuthUrl(window.location.href);
+    const wall = onAuth || site.loginControl();
+    if (wall || tries >= 6) {
+      if (document.documentElement.dataset.sideraLoginOpened !== "1") {
+        document.documentElement.dataset.sideraLoginOpened = "1";
+        site.openLogin();
+      }
+      return { loggedIn: false, waiting: true };
+    }
+    document.documentElement.dataset.sideraLoginTries = String(tries + 1);
+    return { loggedIn: false, waiting: true };
+  }
+
   function adapter() {
     if (globalThis.ChatGPTAdapter && ChatGPTAdapter.identifyTab()) return ChatGPTAdapter;
     if (globalThis.GeminiAdapter && GeminiAdapter.identifyTab()) return GeminiAdapter;
@@ -541,6 +567,8 @@
       const site = adapter();
       const generating = !!(site && site.isGenerating());
       sendResponse({ text: generating ? "" : currentAnswer(), generating: generating });
+    } else if (msg.type === "ENSURE_CHATGPT_LOGIN") {
+      sendResponse(ensureChatGptLogin());
     }
     return true;
   });

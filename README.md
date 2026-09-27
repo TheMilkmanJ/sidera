@@ -47,7 +47,7 @@ What the installer does:
 
 Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. The launcher reads the Windows default browser for `https` and opens ChatGPT and Grok there with the Sidera extension already loaded from `C:\Sidera\chrome-extension`; nothing needs to be loaded by hand. That works when the default browser is Chrome, Edge, Brave, Vivaldi, or Opera. Firefox cannot load this extension. If the default browser cannot, and one of the supported browsers is installed, Sidera tells you and opens that one instead. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
 
-In the extension popup: pair the ChatGPT tab as LEFT, the Grok tab as RIGHT (or a Gemini tab, if you prefer), and press Start. The mediator then runs the Genesis Protocol (below) with both AIs before waiting for your opening message in the ChatGPT tab.
+In the extension popup: pair the ChatGPT tab as LEFT, the Grok tab as RIGHT (or a Gemini tab, if you prefer), and press Start. Sidera uses the ChatGPT account already signed in to that Chrome profile. If the tab is signed out, it opens ChatGPT's own login page, brings that window forward, and waits. Sign in there (a saved Chrome login, the password manager, or an email code). Sidera does not see or store the password. As soon as the chat box is back, it runs the Genesis Protocol (below) and then waits for your opening message in the ChatGPT tab. If sign-in is not finished within 10 minutes, press Start again after you are in.
 
 ## Operator controls (extension popup)
 
