@@ -2,9 +2,9 @@
 
 Local mediator between two browser sessions the operator already has open. It routes messages between LEFT and RIGHT, keeps memory, and logs activity. There is no paid API and no localhost port. The browser talks to the Python host through native messaging (stdin/stdout).
 
-Either side can be any web session, including two tabs of the same site. LEFT is taught `mediator/genesis_left.txt`. RIGHT is taught `mediator/genesis_right.txt`. Those files are different roles. They do not name a product, and they do not authorize a product list. A few hosts have a dedicated page adapter; every other web page uses the generic browser adapter. A page that is not a web page does not pair.
+Each side is a dropdown. The choices are the browser AIs this extension already has adapters for: ChatGPT, Grok, Gemini, and Claude. Choosing one opens that site and pairs the new tab to that side. The same choice can be used on both sides, as two tabs. Nothing opens until a side is chosen. LEFT is taught `mediator/genesis_left.txt`. RIGHT is taught `mediator/genesis_right.txt`. Those files are different roles and do not name a product.
 
-Starting Sidera loads the extension in the browser and does not open a page. Pair the two sessions you already have, including two tabs of the same site. Saved logins for ChatGPT and Grok stay available as an optional convenience. The long burn-ins (50, 100 and 215 turns) were run against Gemini because Grok's free-tier usage limits interrupt multi-hour sessions.
+Starting Sidera loads the extension in the browser and does not open a chat site. Saved logins for ChatGPT and Grok stay available as an optional convenience. The long burn-ins (50, 100 and 215 turns) were run against Gemini because Grok's free-tier usage limits interrupt multi-hour sessions.
 
 The state machine runs `WAIT_LEFT` → `PROCESS` → `SEND_RIGHT` → `WAIT_RIGHT` → `PROCESS` → `SEND_LEFT`, and pauses itself after the configured number of autonomous turns (50 by default) so a burn-in has a fixed ceiling.
 
@@ -18,6 +18,7 @@ node tests/test_completion.js
 node tests/test_content_recovery.js
 node tests/test_session.js
 node tests/test_sites.js
+node tests/test_open_and_pair.js
 ```
 
 Python 3.11 or newer is required (`config.toml` is read with the standard library's `tomllib`). The installer installs Python 3.12 if no 3.11+ is present.
@@ -50,13 +51,13 @@ What the installer does:
 3. Registers `com.sidera.mediator.json` as a native-messaging host for Chrome, Edge, Brave, Vivaldi, Opera, and Chromium (stable and the Chrome/Edge preview channels).
 4. Adds **Sidera Mediator** to the Start menu, and to the desktop if you say yes (the default). Run `INSTALL.bat -DesktopIcon Yes` or `-DesktopIcon No` to skip the question.
 
-Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. The launcher reads the Windows default browser for `https` and starts it with the Sidera extension already loaded from `C:\Sidera\chrome-extension`. It does not open a page. Pair the tabs you already have as LEFT and RIGHT. Nothing needs to be loaded by hand. That works when the default browser is Chrome, Edge, Brave, Vivaldi, or Opera. Firefox cannot load this extension. If the default browser cannot, and one of the supported browsers is installed, Sidera tells you and opens that one instead. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
+Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. The launcher reads the Windows default browser for `https` and starts it with the Sidera extension already loaded from `C:\Sidera\chrome-extension`. It does not open a chat site. Nothing needs to be loaded by hand. That works when the default browser is Chrome, Edge, Brave, Vivaldi, or Opera. Firefox cannot load this extension. If the default browser cannot, and one of the supported browsers is installed, Sidera tells you and opens that one instead. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
 
-In the extension popup: open the browser session you want, then pair that tab as LEFT or RIGHT. Do the same for the other side. The two sides stay independent, including two tabs of the same site. Press Start. If a paired ChatGPT or Grok tab is already signed in, Sidera goes straight on. If either of those is signed out, Sidera opens that site's own login page. Every other session uses the account already signed in in the browser. In the popup, under Saved logins, choose ChatGPT or Grok. Save login stores the email and password once. Change password replaces a saved password. Forget login removes it. Each login is stored under `C:\Sidera\data\credentials`, encrypted with Windows for that user account, and reused the next time that site is signed out. Passwords are not written to the transcript or the log. If a site asks for an email code or a captcha, finish that in the browser; Sidera continues as soon as the chat box is back. Each side is then taught its own role (below), and Sidera waits for your opening message in the LEFT tab.
+In the extension popup, LEFT and RIGHT are dropdowns. Choose ChatGPT, Grok, Gemini, or Claude for a side. That choice opens the site and pairs the new tab. Do the same for the other side. The same choice can be both sides; each selection opens its own tab. Press Start. If a paired ChatGPT or Grok tab is already signed in, Sidera goes straight on. If either of those is signed out, Sidera opens that site's own login page. Gemini and Claude use the account already signed in in the browser. In the popup, under Saved logins, choose ChatGPT or Grok. Save login stores the email and password once. Change password replaces a saved password. Forget login removes it. Each login is stored under `C:\Sidera\data\credentials`, encrypted with Windows for that user account, and reused the next time that site is signed out. Passwords are not written to the transcript or the log. If a site asks for an email code or a captcha, finish that in the browser; Sidera continues as soon as the chat box is back. Each side is then taught its own role (below), and Sidera waits for your opening message in the LEFT tab.
 
 ## Operator controls (extension popup)
 
-- **Pair LEFT / Pair RIGHT**: assign the active tab. Any web page can be either side, including two tabs of the same site. A page that is not a web page is refused. One tab cannot occupy both sides. **Start Exchange**, **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
+- **LEFT / RIGHT**: dropdowns. The choices are ChatGPT, Grok, Gemini, and Claude. Choosing one opens that site and pairs the new tab. The same choice can be both sides, as two tabs. Launch opens no site. **Start Exchange**, **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
 - **Manual forward** LEFT → RIGHT or RIGHT → LEFT: copies the newest completed reply once, through the same ledger and tag processing.
 - **Maximum autonomous turns**: change the ceiling while running; the value is remembered across restarts.
 - **Open data folder / Open latest log**.
@@ -133,7 +134,7 @@ Very long single chats are where ChatGPT, Grok, Gemini and Claude start hanging 
 
 | test | how it is met | where verified |
 | --- | --- | --- |
-| Tab pairing | popup pairs the active web tab as LEFT or RIGHT, including two tabs of the same site; a non-web page is refused | `tests/test_sites.js`, `tests/test_content_recovery.js`, `tests/test_genesis_protocol.py` |
+| Tab pairing | each side is a dropdown of ChatGPT, Grok, Gemini, and Claude; choosing one opens that site and pairs the new tab; the same choice can be both sides; launch opens no site | `tests/test_sites.js`, `tests/test_open_and_pair.js`, `tests/test_install_scripts.py` |
 | Response detection | stop-control state plus 2.5 s of stable text; interim status lines and canned errors are never forwarded | `tests/test_completion.js`, live |
 | One-way transfer | `SUBMIT_MESSAGE` → adapter paste → trusted Send click when needed → `SUBMISSION_CONFIRMED` | live |
 | Autonomous loop ≥ 50 turns | runs of 50, 100 and 215 alternating turns completed; long-session recoveries in place | live burn-ins |

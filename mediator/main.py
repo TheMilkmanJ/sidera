@@ -479,7 +479,7 @@ class MediatorService:
 
         elif msg_type == "HOOK_SLOT":
             slot_id = packet.get("slot_id", "LEFT")
-            adapter = packet.get("adapter_type", "chatgpt")
+            adapter = str(packet.get("adapter_type") or "")
             tab_id = packet.get("tab_id")
             self.state_machine.register_slot(slot_id, adapter, tab_id)
             self.ipc.send_message({

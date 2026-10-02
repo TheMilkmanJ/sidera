@@ -320,4 +320,28 @@ for (const left of options) {
   }).BrowserAdapter.identifyTab(), false);
 }
 
+// Dropdown choices are the four adapters that can be opened. Selecting one
+// plans that site's URL. The same choice on both sides is two tab ids.
+{
+  const choices = sites.sideChoices();
+  same(choices.map((item) => item.id), ["chatgpt", "grok", "gemini", "claude"]);
+  same(choices.map((item) => item.label), ["ChatGPT", "Grok", "Gemini", "Claude"]);
+  assert.equal(sites.openUrlFor("browser"), "");
+  assert.equal(sites.planSelection(sites.emptyRegistry(), "LEFT", "", 1).ok, false);
+  const registry = sites.emptyRegistry();
+  assert.equal(registry.LEFT.adapter, null);
+  assert.equal(registry.RIGHT.tabId, null);
+  for (const choice of choices) {
+    const left = sites.planSelection(sites.emptyRegistry(), "LEFT", choice.id, 11);
+    const right = sites.planSelection(left.registry, "RIGHT", choice.id, 22);
+    assert.equal(left.ok, true, choice.id);
+    assert.equal(left.url, choice.openUrl, choice.id);
+    assert.equal(right.registry.LEFT.adapter, choice.id);
+    assert.equal(right.registry.RIGHT.adapter, choice.id);
+    assert.equal(right.registry.LEFT.tabId, 11);
+    assert.equal(right.registry.RIGHT.tabId, 22);
+    assert.notEqual(right.registry.LEFT.tabId, right.registry.RIGHT.tabId);
+  }
+}
+
 console.log("site pairing checks passed");

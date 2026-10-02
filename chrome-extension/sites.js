@@ -1,17 +1,49 @@
 /**
- * Pairing is by tab, not by a product menu. Any http(s) page can be LEFT or
- * RIGHT, including two tabs of the same host. A few hosts have a dedicated
- * DOM adapter; every other web page uses the generic "browser" adapter.
+ * Each side starts empty. The operator picks one of the browser AIs that
+ * already have an adapter; that choice opens its page and pairs the new tab.
+ * The same choice can be used on both sides. Any other web page still uses
+ * the generic "browser" adapter if a paired tab navigates there.
  * Saved logins exist only where a login helper was already built.
  */
 const SideraSites = {
   SITES: [
-    { id: "chatgpt", label: "ChatGPT", login: "chatgpt" },
-    { id: "grok", label: "Grok", login: "grok" },
-    { id: "gemini", label: "Gemini", login: null },
-    { id: "claude", label: "Claude", login: null },
+    { id: "chatgpt", label: "ChatGPT", login: "chatgpt", openUrl: "https://chatgpt.com/" },
+    { id: "grok", label: "Grok", login: "grok", openUrl: "https://grok.com/" },
+    { id: "gemini", label: "Gemini", login: null, openUrl: "https://gemini.google.com/app" },
+    { id: "claude", label: "Claude", login: null, openUrl: "https://claude.ai/new" },
     { id: "browser", label: "Browser", login: null },
   ],
+
+  // Dropdown choices. Only adapters that can be opened on purpose.
+  sideChoices() {
+    return this.SITES.filter((item) => item.openUrl).map((item) => ({
+      id: item.id,
+      label: item.label,
+      openUrl: item.openUrl,
+    }));
+  },
+
+  openUrlFor(adapter) {
+    const site = this.SITES.find((item) => item.id === adapter);
+    return site && site.openUrl ? site.openUrl : "";
+  },
+
+  // What one dropdown selection does: which URL to open, and which tab id
+  // lands on that side. A second selection of the same adapter uses another tab.
+  planSelection(registry, slotId, adapter, tabId) {
+    const url = this.openUrlFor(adapter);
+    if (!url) return { ok: false, error: "Choose ChatGPT, Grok, Gemini, or Claude." };
+    const host = this._parsed(url).hostname;
+    const decision = this.assignSlot(registry, slotId, tabId, adapter, host);
+    if (!decision.ok) return decision;
+    return {
+      ok: true,
+      url: url,
+      host: host,
+      registry: decision.registry,
+      displaced: decision.displaced,
+    };
+  },
 
   emptySlot() {
     return { adapter: null, tabId: null, host: null };

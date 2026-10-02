@@ -123,6 +123,16 @@ class GenesisProtocolTests(unittest.TestCase):
         self.assertIn("`LEFT` replied READY", body)
         self.assertIn("**Genesis:** complete", body)
 
+    def test_a_side_has_no_site_until_the_operator_selects_one(self):
+        service = self.make_service(genesis_enabled=False)
+        self.assertEqual(service.state_machine.slots["LEFT"].adapter_type, "")
+        self.assertEqual(service.state_machine.slots["RIGHT"].adapter_type, "")
+        self.assertIsNone(service.state_machine.slots["LEFT"].tab_id)
+        self.assertIsNone(service.state_machine.slots["RIGHT"].tab_id)
+        service.handle_message({"type": "HOOK_SLOT", "slot_id": "LEFT"})
+        self.assertEqual(service.state_machine.slots["LEFT"].adapter_type, "")
+        self.assertIsNone(service.state_machine.slots["LEFT"].tab_id)
+
     def test_two_sessions_of_one_site_keep_their_own_roles(self):
         service = self.make_service(genesis_enabled=True)
         service.handle_message({"type": "HOOK_SLOT", "slot_id": "LEFT", "adapter_type": "browser", "tab_id": 11})

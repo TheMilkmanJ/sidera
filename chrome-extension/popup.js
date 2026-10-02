@@ -7,8 +7,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const lastError = document.getElementById("lastError");
   const statusMessage = document.getElementById("statusMessage");
 
-  const btnPairLeft = document.getElementById("btnPairLeft");
-  const btnPairRight = document.getElementById("btnPairRight");
+  const sideLeft = document.getElementById("sideLeft");
+  const sideRight = document.getElementById("sideRight");
   const btnStart = document.getElementById("btnStart");
   const btnPause = document.getElementById("btnPause");
   const btnStop = document.getElementById("btnStop");
@@ -65,8 +65,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (data.maxTurns && !maxTurnsTouched) maxTurnsInput.value = data.maxTurns;
     if (data.signInMessage) statusMessage.innerText = data.signInMessage;
 
-    paintPairButton(btnPairLeft, "LEFT", data);
-    paintPairButton(btnPairRight, "RIGHT", data);
+    paintSideSelect(sideLeft, "LEFT", data);
+    paintSideSelect(sideRight, "RIGHT", data);
 
     if (state === "PAUSED" || state === "ERROR") {
       btnPause.innerText = "Resume";
@@ -79,18 +79,37 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function siteLabel(adapter) {
-    if (!adapter || !globalThis.SideraSites) return "";
-    return SideraSites.labelFor(adapter);
+  let suppressChoice = false;
+
+  function fillSideSelect(select) {
+    const current = select.value;
+    select.innerHTML = "";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "Choose";
+    select.appendChild(blank);
+    const choices = globalThis.SideraSites ? SideraSites.sideChoices() : [];
+    for (const choice of choices) {
+      const option = document.createElement("option");
+      option.value = choice.id;
+      option.textContent = choice.label;
+      select.appendChild(option);
+    }
+    select.value = choices.some((choice) => choice.id === current) ? current : "";
   }
 
-  function paintPairButton(button, side, data) {
+  function paintSideSelect(select, side, data) {
     const slot = data.slots && data.slots[side];
-    const paired = !!(slot && slot.tabId) || (!data.slots && (side === "LEFT" ? data.leftPaired : data.rightPaired));
-    button.classList.toggle("paired", paired);
-    const label = paired ? ((slot && slot.host) || siteLabel(slot && slot.adapter)) : "";
-    button.innerText = label ? side + " · " + label + " ✓" : (paired ? side + " paired ✓" : "Pair " + side);
+    const paired = !!(slot && slot.tabId);
+    const adapter = paired && globalThis.SideraSites && SideraSites.openUrlFor(slot.adapter) ? slot.adapter : "";
+    if (select.value === adapter) return;
+    suppressChoice = true;
+    select.value = adapter;
+    suppressChoice = false;
   }
+
+  fillSideSelect(sideLeft);
+  fillSideSelect(sideRight);
 
   function showLoginForm() {
     const service = serviceName();
@@ -134,22 +153,28 @@ document.addEventListener("DOMContentLoaded", () => {
     if (msg.type === "POPUP_STATUS_UPDATE") updateUI(msg);
   });
 
-  function pairSide(side) {
-    chrome.runtime.sendMessage({ type: "PAIR_TAB", side: side }, (resp) => {
+  function chooseSide(side, adapter) {
+    if (!adapter) return;
+    const label = SideraSites.labelFor(adapter) || adapter;
+    statusMessage.innerText = "Opening " + label + " for " + side + "...";
+    chrome.runtime.sendMessage({ type: "OPEN_AND_PAIR", side: side, adapter: adapter }, (resp) => {
       const runtimeMessage = chrome.runtime.lastError && chrome.runtime.lastError.message;
       if (runtimeMessage || !resp || resp.success === false) {
-        statusMessage.innerText = (resp && resp.error) || runtimeMessage || "Could not pair this tab.";
+        statusMessage.innerText = (resp && resp.error) || runtimeMessage || "Could not open that page.";
         return;
       }
-      const label = resp.label || resp.host || "this tab";
-      statusMessage.innerText = resp.displaced
-        ? "Paired this tab as " + side + " (" + label + "). Removed it from " + resp.displaced + " so each side keeps its own tab."
-        : "Paired this tab as " + side + " (" + label + ").";
+      statusMessage.innerText = side + " is " + (resp.label || label) + ".";
     });
   }
 
-  btnPairLeft.addEventListener("click", () => pairSide("LEFT"));
-  btnPairRight.addEventListener("click", () => pairSide("RIGHT"));
+  sideLeft.addEventListener("change", () => {
+    if (suppressChoice) return;
+    chooseSide("LEFT", sideLeft.value);
+  });
+  sideRight.addEventListener("change", () => {
+    if (suppressChoice) return;
+    chooseSide("RIGHT", sideRight.value);
+  });
 
   btnStart.addEventListener("click", () => {
     chrome.runtime.sendMessage({ type: "START", initial_hemisphere: "LEFT" }, (resp) => {

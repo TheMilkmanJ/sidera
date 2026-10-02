@@ -52,6 +52,10 @@ class TestStateMachine(unittest.TestCase):
         self.assertEqual(self.sm.state, MediatorState.IDLE)
 
     def test_each_side_chooses_its_own_adapter_and_tab(self):
+        self.assertEqual(self.sm.slots["LEFT"].adapter_type, "")
+        self.assertEqual(self.sm.slots["RIGHT"].adapter_type, "")
+        self.assertIsNone(self.sm.slots["LEFT"].tab_id)
+        self.assertIsNone(self.sm.slots["RIGHT"].tab_id)
         self.sm.register_slot("LEFT", "claude", 11)
         self.sm.register_slot("RIGHT", "claude", 22)
         self.assertEqual(self.sm.slots["LEFT"].adapter_type, "claude")

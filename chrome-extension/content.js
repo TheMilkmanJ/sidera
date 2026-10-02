@@ -625,6 +625,10 @@
         startObserver();
         sendResponse({ status: "paired", hemisphere: hemisphere, adapter: site.id || "" });
       }
+    } else if (msg.type === "RELEASE_HEMISPHERE") {
+      retire();
+      hemisphere = null;
+      sendResponse({ status: "released" });
     } else if (msg.type === "INJECT_AND_SUBMIT") {
       injectAndSubmit(msg.text, msg.message_id);
       sendResponse({ status: "submitting" });
