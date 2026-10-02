@@ -265,9 +265,15 @@
   }
 
   function adapter() {
-    if (globalThis.ChatGPTAdapter && ChatGPTAdapter.identifyTab()) return ChatGPTAdapter;
-    if (globalThis.GeminiAdapter && GeminiAdapter.identifyTab()) return GeminiAdapter;
-    if (globalThis.GrokAdapter && GrokAdapter.identifyTab()) return GrokAdapter;
+    const sites = [
+      globalThis.ChatGPTAdapter,
+      globalThis.GeminiAdapter,
+      globalThis.GrokAdapter,
+      globalThis.ClaudeAdapter,
+    ];
+    for (const site of sites) {
+      if (site && typeof site.identifyTab === "function" && site.identifyTab()) return site;
+    }
     return null;
   }
 
@@ -595,19 +601,29 @@
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "ASSIGN_HEMISPHERE") {
-      hemisphere = msg.hemisphere;
-      isPaired = true;
-      document.documentElement.dataset.sideraInstance = instanceId;
-      if (typeof msg.genesis === "string" && msg.genesis) document.documentElement.dataset.sideraGenesis = msg.genesis;
-      applySettings(msg.settings);
-      if (msg.baseline === false) {
-        lastCompletedText = "";
-        sawStop = false;
+      const site = adapter();
+      if (!site) {
+        retire();
+        hemisphere = null;
+        sendResponse({
+          status: "rejected",
+          error: "This page is not a supported AI site. Open ChatGPT, Grok, Gemini, or Claude, then pair that tab.",
+        });
       } else {
-        restoreTurn();
+        hemisphere = msg.hemisphere;
+        isPaired = true;
+        document.documentElement.dataset.sideraInstance = instanceId;
+        if (typeof msg.genesis === "string" && msg.genesis) document.documentElement.dataset.sideraGenesis = msg.genesis;
+        applySettings(msg.settings);
+        if (msg.baseline === false) {
+          lastCompletedText = "";
+          sawStop = false;
+        } else {
+          restoreTurn();
+        }
+        startObserver();
+        sendResponse({ status: "paired", hemisphere: hemisphere, adapter: site.id || "" });
       }
-      startObserver();
-      sendResponse({ status: "paired", hemisphere: hemisphere });
     } else if (msg.type === "INJECT_AND_SUBMIT") {
       injectAndSubmit(msg.text, msg.message_id);
       sendResponse({ status: "submitting" });

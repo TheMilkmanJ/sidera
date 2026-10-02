@@ -51,6 +51,19 @@ class TestStateMachine(unittest.TestCase):
         self.sm.stop()
         self.assertEqual(self.sm.state, MediatorState.IDLE)
 
+    def test_each_side_chooses_its_own_adapter_and_tab(self):
+        self.sm.register_slot("LEFT", "claude", 11)
+        self.sm.register_slot("RIGHT", "claude", 22)
+        self.assertEqual(self.sm.slots["LEFT"].adapter_type, "claude")
+        self.assertEqual(self.sm.slots["RIGHT"].adapter_type, "claude")
+        self.assertEqual(self.sm.slots["LEFT"].tab_id, 11)
+        self.assertEqual(self.sm.slots["RIGHT"].tab_id, 22)
+        self.sm.register_slot("LEFT", "chatgpt", 31)
+        self.sm.register_slot("RIGHT", "grok", 32)
+        self.assertEqual(self.sm.slots["LEFT"].adapter_type, "chatgpt")
+        self.assertEqual(self.sm.slots["RIGHT"].adapter_type, "grok")
+        self.assertNotEqual(self.sm.slots["LEFT"].tab_id, self.sm.slots["RIGHT"].tab_id)
+
     def test_dynamic_slot_registration_and_routing(self):
         self.sm.register_slot("BOT3", "claude")
         self.assertEqual(len(self.sm.slot_sequence), 3)

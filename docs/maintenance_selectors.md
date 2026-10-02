@@ -1,8 +1,9 @@
-# Maintenance guide: when ChatGPT, Gemini or Grok change their pages
+# Maintenance guide: when ChatGPT, Grok, Gemini or Claude change their pages
 
 All site-specific knowledge lives in one file per site under
-`chrome-extension/adapters/`: `chatgpt.js`, `gemini.js`, `grok.js`. The mediator
-(`mediator/`) never looks at page structure, and `content.js` only talks to adapters
+`chrome-extension/adapters/`: `chatgpt.js`, `grok.js`, `gemini.js`, `claude.js`.
+Which hostnames pair, and on which side, lives in `chrome-extension/sites.js`.
+The mediator (`mediator/`) never looks at page structure, and `content.js` only talks to adapters
 through the interface below, so a site change is fixed by editing one adapter file.
 
 ## The adapter interface
@@ -68,4 +69,6 @@ example a new "Thinking…" label or a new canned error) there, and add a line t
 python3 -m unittest discover tests
 node tests/test_completion.js
 node tests/test_content_recovery.js
+node tests/test_session.js
+node tests/test_sites.js
 ```

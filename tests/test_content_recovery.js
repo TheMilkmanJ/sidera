@@ -475,4 +475,42 @@ function makeContext() {
   assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 0, "retired copy stays silent");
 }
 
+// A page with no adapter is refused and does not capture a reply.
+{
+  const t = makeContext();
+  t.site.identifyTab = () => false;
+  let response = null;
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "LEFT" }, {}, (resp) => { response = resp; });
+  assert.strictEqual(response.status, "rejected");
+  assert.ok(/ChatGPT, Grok, Gemini, or Claude/.test(response.error), response.error);
+  t.site.latest = "This page should not count as a reply.";
+  t.advance(3000);
+  t.ctx.__sideraHeartbeat();
+  assert.strictEqual(t.sent.filter((m) => m.type === "RESPONSE_CAPTURED").length, 0);
+}
+
+// Two tabs of the same site stay distinct: each document reports only its side.
+{
+  const left = makeContext();
+  const right = makeContext();
+  left.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "LEFT" }, {}, () => {});
+  right.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT" }, {}, () => {});
+  left.site.latest = "left reply only";
+  right.site.latest = "right reply only";
+  left.advance(3000);
+  right.advance(3000);
+  left.ctx.__sideraHeartbeat();
+  right.ctx.__sideraHeartbeat();
+  const leftCaptured = left.sent.filter((m) => m.type === "RESPONSE_CAPTURED");
+  const rightCaptured = right.sent.filter((m) => m.type === "RESPONSE_CAPTURED");
+  assert.strictEqual(leftCaptured.length, 1);
+  assert.strictEqual(rightCaptured.length, 1);
+  assert.strictEqual(leftCaptured[0].source, "LEFT");
+  assert.strictEqual(leftCaptured[0].content, "left reply only");
+  assert.strictEqual(rightCaptured[0].source, "RIGHT");
+  assert.strictEqual(rightCaptured[0].content, "right reply only");
+  assert.ok(!left.sent.some((m) => m.content === "right reply only"));
+  assert.ok(!right.sent.some((m) => m.content === "left reply only"));
+}
+
 console.log("content recovery ok");

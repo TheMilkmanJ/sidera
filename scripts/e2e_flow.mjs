@@ -70,7 +70,7 @@ async function bootPage(page, worldName) {
     },
     onMessage: { addListener(fn) { globalThis.__sideraIn = fn; } }
   }};`);
-  for (const name of ["dom_utils.js", "completion.js", "adapters/chatgpt.js", "adapters/gemini.js", "adapters/grok.js", "content.js"]) {
+  for (const name of ["dom_utils.js", "completion.js", "adapters/chatgpt.js", "adapters/gemini.js", "adapters/grok.js", "adapters/claude.js", "content.js"]) {
     await evaluate(readFileSync(path.join(root, "chrome-extension", name), "utf8"));
   }
   return {

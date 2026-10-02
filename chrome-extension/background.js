@@ -1,3 +1,5 @@
+importScripts("sites.js");
+
 const NATIVE_HOST_NAME = "com.sidera.mediator";
 
 let nativePort = null;
@@ -7,7 +9,7 @@ let lastMessageId = null;
 let lastError = null;
 let maxTurns = null;
 let autonomousSubmissions = true;
-// Set while Start is waiting for the operator to finish ChatGPT sign-in.
+// Set while Start is waiting for the operator to finish a site sign-in.
 let signInMessage = null;
 let loginWaitGeneration = 0;
 // Held only while a sign-in attempt is in progress. Never written to storage or status.
@@ -27,10 +29,7 @@ let contentSettings = {};
 const briefWaiters = { LEFT: [], RIGHT: [] };
 const BRIEF_TIMEOUT_MS = 8000;
 
-const slotRegistry = {
-  LEFT: { adapter: "chatgpt", tabId: null },
-  RIGHT: { adapter: "grok", tabId: null },
-};
+const slotRegistry = SideraSites.emptyRegistry();
 
 function persistSession() {
   chrome.storage.session.set({
@@ -53,19 +52,47 @@ function assignTab(tabId, slotId, adapterType, callback) {
   }, callback);
 }
 
+function releaseSlot(slotId, reason) {
+  slotRegistry[slotId] = SideraSites.emptySlot();
+  persistSession();
+  lastError = reason;
+  sendToMediator({ type: "HOOK_SLOT", slot_id: slotId, adapter_type: "", tab_id: null });
+  broadcastStatus();
+}
+
 // A paired tab that does a full page load (a site's "New chat" or a reload)
-// gets a fresh content script, so hand it its hemisphere again.
+// gets a fresh content script, so hand it its hemisphere again. A navigation
+// off the four supported sites drops that side, except through that site's
+// own sign-in page, which is not a chat but must not break the login wait.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== "complete") return;
-  for (const slotId of Object.keys(slotRegistry)) {
-    const slot = slotRegistry[slotId];
-    if (!slot || slot.tabId !== tabId) continue;
-    assignTab(tabId, slotId, slot.adapter, () => {
-      if (chrome.runtime.lastError) {
-        console.warn(`Re-pairing ${slotId} after navigation failed:`, chrome.runtime.lastError.message);
+  const owned = Object.keys(slotRegistry).filter((slotId) => slotRegistry[slotId] && slotRegistry[slotId].tabId === tabId);
+  if (!owned.length) return;
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab) return;
+    for (const slotId of owned) {
+      const slot = slotRegistry[slotId];
+      if (!slot || slot.tabId !== tabId) continue;
+      const detected = SideraSites.adapterForUrl(tab.url);
+      if (detected) {
+        slot.adapter = detected;
+        persistSession();
+        assignTab(tabId, slotId, detected, (resp) => {
+          const runtimeMessage = chrome.runtime.lastError && chrome.runtime.lastError.message;
+          if (resp && resp.status === "rejected") {
+            releaseSlot(slotId, resp.error || `The ${slotId} tab is no longer ChatGPT, Grok, Gemini, or Claude. Pair that side again.`);
+            return;
+          }
+          if (runtimeMessage) {
+            console.warn(`Re-pairing ${slotId} after navigation failed:`, runtimeMessage);
+          }
+        });
+        continue;
       }
-    });
-  }
+      if (slot.adapter && SideraSites.isLoginUrlFor(slot.adapter, tab.url)) continue;
+      releaseSlot(slotId, `The ${slotId} tab is no longer ChatGPT, Grok, Gemini, or Claude. Pair that side again.`);
+    }
+  });
 });
 
 function connectNative() {
@@ -199,25 +226,8 @@ function broadcastStatus() {
   chrome.runtime.sendMessage({ type: "POPUP_STATUS_UPDATE", ...statusSnapshot() }).catch(() => {});
 }
 
-const LOGIN_SITES = {
-  chatgpt: {
-    label: "ChatGPT",
-    auth(url) {
-      return /https:\/\/auth\.openai\.com\//i.test(url || "") || /https:\/\/([^/]+\.)?chatgpt\.com\/auth/i.test(url || "");
-    },
-  },
-  grok: {
-    label: "Grok",
-    auth(url) {
-      return /https:\/\/accounts\.x\.ai\//i.test(url || "")
-        || /https:\/\/([^/]+\.)?grok\.com\/(login|sign-in|auth)/i.test(url || "")
-        || /https:\/\/([^/]+\.)?x\.com\/(login|i\/flow\/login)/i.test(url || "");
-    },
-  },
-};
-
 function loginSite(service) {
-  return LOGIN_SITES[service] || LOGIN_SITES.chatgpt;
+  return SideraSites.loginSite(service) || SideraSites.loginSite("chatgpt");
 }
 
 function forgetLoginSecret() {
@@ -428,14 +438,48 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendToMediator({ type: reqType });
   } else if (reqType === "PAIR_TAB" || reqType === "HOOK_TAB") {
     const slotId = (request.side || request.slotId || "LEFT").toUpperCase();
-    const adapterType = request.adapterType || (slotId === "LEFT" ? "chatgpt" : "grok");
-
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs || tabs.length === 0) return;
-      const tab = tabs[0];
-      slotRegistry[slotId] = { adapter: adapterType, tabId: tab.id };
+      const tab = tabs && tabs[0];
+      if (!tab || !tab.id) {
+        sendResponse({ success: false, error: "No active tab to pair." });
+        return;
+      }
+      const found = SideraSites.classify(tab.url);
+      if (!found.ok) {
+        sendResponse({ success: false, error: found.error });
+        return;
+      }
+      const decision = SideraSites.assignSlot(slotRegistry, slotId, tab.id, found.adapter);
+      if (!decision.ok) {
+        sendResponse({ success: false, error: decision.error });
+        return;
+      }
+      const previous = {
+        LEFT: { adapter: slotRegistry.LEFT && slotRegistry.LEFT.adapter, tabId: slotRegistry.LEFT && slotRegistry.LEFT.tabId },
+        RIGHT: { adapter: slotRegistry.RIGHT && slotRegistry.RIGHT.adapter, tabId: slotRegistry.RIGHT && slotRegistry.RIGHT.tabId },
+      };
+      slotRegistry.LEFT = decision.registry.LEFT;
+      slotRegistry.RIGHT = decision.registry.RIGHT;
       persistSession();
-      assignTab(tab.id, slotId, adapterType, (resp) => {
+      assignTab(tab.id, slotId, found.adapter, (resp) => {
+        const runtimeMessage = chrome.runtime.lastError && chrome.runtime.lastError.message;
+        if (runtimeMessage || !resp || resp.status !== "paired") {
+          slotRegistry.LEFT = previous.LEFT;
+          slotRegistry.RIGHT = previous.RIGHT;
+          persistSession();
+          broadcastStatus();
+          sendResponse({
+            success: false,
+            error: (resp && resp.error) || SideraSites.pairConnectionMessage(runtimeMessage),
+          });
+          return;
+        }
+        const adapterType = resp.adapter && SideraSites.labelFor(resp.adapter) ? resp.adapter : found.adapter;
+        slotRegistry[slotId] = { adapter: adapterType, tabId: tab.id };
+        persistSession();
+        if (decision.displaced) {
+          sendToMediator({ type: "HOOK_SLOT", slot_id: decision.displaced, adapter_type: "", tab_id: null });
+        }
         sendToMediator({
           type: "HOOK_SLOT",
           slot_id: slotId,
@@ -443,7 +487,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           tab_id: tab.id,
         });
         broadcastStatus();
-        sendResponse({ success: true, slotId: slotId, tabId: tab.id });
+        sendResponse({
+          success: true,
+          slotId: slotId,
+          tabId: tab.id,
+          adapter: adapterType,
+          label: SideraSites.labelFor(adapterType),
+          displaced: decision.displaced,
+        });
       });
     });
     return true;
@@ -466,14 +517,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const left = slotRegistry.LEFT;
     if (!left || !left.tabId) {
       signInMessage = null;
-      lastError = "Pair the ChatGPT tab as LEFT before starting.";
+      lastError = "Pair a tab as LEFT before starting.";
       broadcastStatus();
       sendResponse({ ok: false, error: lastError });
       return true;
     }
-    signInMessage = "Checking the ChatGPT sign-in...";
-    lastError = null;
-    broadcastStatus();
+    const queue = SideraSites.loginQueue(slotRegistry);
     const beginExchange = () => {
       signInMessage = null;
       lastError = null;
@@ -487,23 +536,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       broadcastStatus();
       sendResponse(result);
     };
-    ensureSiteLogin(left.tabId, "chatgpt", (chatResult) => {
-      if (!chatResult.ok) {
-        fail(chatResult);
-        return;
-      }
-      const right = slotRegistry.RIGHT;
-      if (!right || !right.tabId || right.adapter === "gemini") {
+    let index = 0;
+    const step = () => {
+      if (index >= queue.length) {
         beginExchange();
         return;
       }
-      signInMessage = "Checking the Grok sign-in...";
+      const item = queue[index];
+      index += 1;
+      signInMessage = `Checking the ${item.label} sign-in...`;
+      lastError = null;
       broadcastStatus();
-      ensureSiteLogin(right.tabId, "grok", (grokResult) => {
-        if (!grokResult.ok) fail(grokResult);
-        else beginExchange();
+      ensureSiteLogin(item.tabId, item.service, (result) => {
+        if (!result.ok) fail(result);
+        else step();
       });
-    });
+    };
+    step();
     return true;
   } else if (reqType === "PAUSE") {
     sendToMediator({ type: "PAUSE", reason: "User paused from extension popup" });
