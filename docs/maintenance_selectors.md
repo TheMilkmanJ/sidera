@@ -1,8 +1,10 @@
-# Maintenance guide: when ChatGPT, Grok, Gemini or Claude change their pages
+# Maintenance guide: page adapters
 
-All site-specific knowledge lives in one file per site under
-`chrome-extension/adapters/`: `chatgpt.js`, `grok.js`, `gemini.js`, `claude.js`.
-Which hostnames pair, and on which side, lives in `chrome-extension/sites.js`.
+Any web page can be paired as LEFT or RIGHT. Hosts with a measured layout have a
+dedicated adapter under `chrome-extension/adapters/`: `chatgpt.js`, `grok.js`,
+`gemini.js`, `claude.js`. Every other web page uses `browser.js`, which looks for
+a chat box and an assistant turn and does not name a product. Which host uses a
+dedicated adapter lives in `knownAdapterForUrl` in `chrome-extension/sites.js`.
 The mediator (`mediator/`) never looks at page structure, and `content.js` only talks to adapters
 through the interface below, so a site change is fixed by editing one adapter file.
 

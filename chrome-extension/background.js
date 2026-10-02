@@ -20,9 +20,8 @@ const loginStatusWaiters = [];
 let loginSecretWaiter = null;
 const LOGIN_POLL_MS = 1500;
 const LOGIN_WAIT_MS = 10 * 60 * 1000;
-// Genesis Protocol text from the mediator; a tab that starts a fresh chat
-// re-teaches it before continuing.
-let genesisText = "";
+// Each side is re-taught only its own role when it opens a fresh chat.
+const genesisBySide = { LEFT: "", RIGHT: "" };
 // Tuning from config.toml that content scripts need (e.g. rotate_after_pastes).
 let contentSettings = {};
 // Content scripts waiting for a catch-up brief (CONTEXT_REQUEST -> CONTEXT_BRIEF).
@@ -37,7 +36,7 @@ function persistSession() {
     currentMediatorState: currentMediatorState,
     currentTurnCount: currentTurnCount,
     lastMessageId: lastMessageId,
-    genesisText: genesisText,
+    genesisBySide: genesisBySide,
     contentSettings: contentSettings,
   }).catch(() => {});
 }
@@ -47,7 +46,7 @@ function assignTab(tabId, slotId, adapterType, callback) {
     type: "ASSIGN_HEMISPHERE",
     hemisphere: slotId,
     adapterType: adapterType,
-    genesis: genesisText,
+    genesis: genesisBySide[slotId] || "",
     settings: contentSettings,
   }, callback);
 }
@@ -60,10 +59,31 @@ function releaseSlot(slotId, reason) {
   broadcastStatus();
 }
 
+function applyGenesisTexts(left, right) {
+  if (typeof left === "string") genesisBySide.LEFT = left;
+  if (typeof right === "string") genesisBySide.RIGHT = right;
+  persistSession();
+  for (const slotId of Object.keys(slotRegistry)) {
+    const slot = slotRegistry[slotId];
+    if (!slot || !slot.tabId) continue;
+    chrome.tabs.sendMessage(slot.tabId, { type: "SET_GENESIS", genesis: genesisBySide[slotId] || "" }, () => {
+      void chrome.runtime.lastError;
+    });
+  }
+}
+
+function hostOf(url) {
+  try {
+    return new URL(String(url || "")).hostname;
+  } catch (err) {
+    return null;
+  }
+}
+
 // A paired tab that does a full page load (a site's "New chat" or a reload)
-// gets a fresh content script, so hand it its hemisphere again. A navigation
-// off the four supported sites drops that side, except through that site's
-// own sign-in page, which is not a chat but must not break the login wait.
+// gets a fresh content script, so hand it its hemisphere again. A dedicated
+// site's own sign-in page is not a chat, but it must not drop that side.
+// Any other web page stays paired as a browser session. Non-web pages drop.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== "complete") return;
   const owned = Object.keys(slotRegistry).filter((slotId) => slotRegistry[slotId] && slotRegistry[slotId].tabId === tabId);
@@ -73,14 +93,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     for (const slotId of owned) {
       const slot = slotRegistry[slotId];
       if (!slot || slot.tabId !== tabId) continue;
-      const detected = SideraSites.adapterForUrl(tab.url);
-      if (detected) {
-        slot.adapter = detected;
+      const known = SideraSites.knownAdapterForUrl(tab.url);
+      if (known) {
+        slot.adapter = known;
+        slot.host = hostOf(tab.url);
         persistSession();
-        assignTab(tabId, slotId, detected, (resp) => {
+        assignTab(tabId, slotId, known, (resp) => {
           const runtimeMessage = chrome.runtime.lastError && chrome.runtime.lastError.message;
           if (resp && resp.status === "rejected") {
-            releaseSlot(slotId, resp.error || `The ${slotId} tab is no longer ChatGPT, Grok, Gemini, or Claude. Pair that side again.`);
+            releaseSlot(slotId, resp.error || `The ${slotId} tab is not a browser session Sidera can use. Pair that side again.`);
             return;
           }
           if (runtimeMessage) {
@@ -90,7 +111,24 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
         continue;
       }
       if (slot.adapter && SideraSites.isLoginUrlFor(slot.adapter, tab.url)) continue;
-      releaseSlot(slotId, `The ${slotId} tab is no longer ChatGPT, Grok, Gemini, or Claude. Pair that side again.`);
+      const found = SideraSites.classify(tab.url);
+      if (!found.ok) {
+        releaseSlot(slotId, `The ${slotId} tab is not a browser session Sidera can use. Pair that side again.`);
+        continue;
+      }
+      slot.adapter = found.adapter;
+      slot.host = found.host;
+      persistSession();
+      assignTab(tabId, slotId, found.adapter, (resp) => {
+        const runtimeMessage = chrome.runtime.lastError && chrome.runtime.lastError.message;
+        if (resp && resp.status === "rejected") {
+          releaseSlot(slotId, resp.error || `The ${slotId} tab is not a browser session Sidera can use. Pair that side again.`);
+          return;
+        }
+        if (runtimeMessage) {
+          console.warn(`Re-pairing ${slotId} after navigation failed:`, runtimeMessage);
+        }
+      });
     }
   });
 });
@@ -176,17 +214,8 @@ function handleMediatorMessage(msg) {
         });
       }
     }
-  } else if (type === "GENESIS_TEXT") {
-    genesisText = msg.text || "";
-    persistSession();
-    for (const slotId of Object.keys(slotRegistry)) {
-      const slot = slotRegistry[slotId];
-      if (slot && slot.tabId) {
-        chrome.tabs.sendMessage(slot.tabId, { type: "SET_GENESIS", genesis: genesisText }, () => {
-          void chrome.runtime.lastError;
-        });
-      }
-    }
+  } else if (type === "GENESIS_TEXTS") {
+    applyGenesisTexts(msg.left, msg.right);
   } else if (type === "SUBMIT_MESSAGE") {
     const dest = msg.destination.toUpperCase();
     const slot = slotRegistry[dest];
@@ -449,14 +478,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ success: false, error: found.error });
         return;
       }
-      const decision = SideraSites.assignSlot(slotRegistry, slotId, tab.id, found.adapter);
+      const decision = SideraSites.assignSlot(slotRegistry, slotId, tab.id, found.adapter, found.host);
       if (!decision.ok) {
         sendResponse({ success: false, error: decision.error });
         return;
       }
       const previous = {
-        LEFT: { adapter: slotRegistry.LEFT && slotRegistry.LEFT.adapter, tabId: slotRegistry.LEFT && slotRegistry.LEFT.tabId },
-        RIGHT: { adapter: slotRegistry.RIGHT && slotRegistry.RIGHT.adapter, tabId: slotRegistry.RIGHT && slotRegistry.RIGHT.tabId },
+        LEFT: SideraSites._copySlot(slotRegistry.LEFT),
+        RIGHT: SideraSites._copySlot(slotRegistry.RIGHT),
       };
       slotRegistry.LEFT = decision.registry.LEFT;
       slotRegistry.RIGHT = decision.registry.RIGHT;
@@ -475,7 +504,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           return;
         }
         const adapterType = resp.adapter && SideraSites.labelFor(resp.adapter) ? resp.adapter : found.adapter;
-        slotRegistry[slotId] = { adapter: adapterType, tabId: tab.id };
+        slotRegistry[slotId] = { adapter: adapterType, tabId: tab.id, host: found.host || null };
         persistSession();
         if (decision.displaced) {
           sendToMediator({ type: "HOOK_SLOT", slot_id: decision.displaced, adapter_type: "", tab_id: null });
@@ -492,7 +521,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           slotId: slotId,
           tabId: tab.id,
           adapter: adapterType,
-          label: SideraSites.labelFor(adapterType),
+          host: found.host || null,
+          label: found.host || SideraSites.labelFor(adapterType),
           displaced: decision.displaced,
         });
       });
@@ -570,13 +600,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 chrome.storage.session.get(
-  ["slotRegistry", "currentMediatorState", "currentTurnCount", "lastMessageId", "genesisText", "contentSettings"],
+  ["slotRegistry", "currentMediatorState", "currentTurnCount", "lastMessageId", "genesisBySide", "contentSettings"],
   (data) => {
     if (data && data.slotRegistry) {
       if (data.slotRegistry.LEFT) slotRegistry.LEFT = data.slotRegistry.LEFT;
       if (data.slotRegistry.RIGHT) slotRegistry.RIGHT = data.slotRegistry.RIGHT;
     }
-    if (data && typeof data.genesisText === "string") genesisText = data.genesisText;
+    if (data && data.genesisBySide && typeof data.genesisBySide === "object") {
+      if (typeof data.genesisBySide.LEFT === "string") genesisBySide.LEFT = data.genesisBySide.LEFT;
+      if (typeof data.genesisBySide.RIGHT === "string") genesisBySide.RIGHT = data.genesisBySide.RIGHT;
+    }
     if (data && data.contentSettings && typeof data.contentSettings === "object") contentSettings = data.contentSettings;
     if (data && data.currentMediatorState) currentMediatorState = data.currentMediatorState;
     if (data && typeof data.currentTurnCount === "number") currentTurnCount = data.currentTurnCount;

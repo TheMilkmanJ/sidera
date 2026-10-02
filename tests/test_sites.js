@@ -1,6 +1,6 @@
-// Each side is chosen from the tab that is actually open. ChatGPT, Grok,
-// Gemini and Claude can sit on either side, including twice, and anything
-// else is refused. Two tabs of one site stay two tabs.
+// Pairing is by tab. Any http(s) page can be either side, including two tabs
+// of one host. Hosts that already have a measured adapter keep that adapter.
+// Anything that is not a web page is refused. Two tabs stay two tabs.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -41,39 +41,46 @@ const PAGES = [
   ["https://chatgpt.com/c/abc", "chatgpt"],
   ["https://www.chatgpt.com/c/abc", "chatgpt"],
   ["https://chatgpt.com/auth/login", "chatgpt"],
-  ["https://auth.openai.com/log-in", null],
+  ["https://auth.openai.com/log-in", "browser"],
   ["https://grok.com/", "grok"],
   ["https://grok.com/login", "grok"],
   ["https://x.com/i/grok", "grok"],
-  ["https://x.com/home", null],
-  ["https://accounts.x.ai/sign-in", null],
+  ["https://x.com/home", "browser"],
+  ["https://accounts.x.ai/sign-in", "browser"],
   ["https://gemini.google.com/app", "gemini"],
-  ["https://google.com/", null],
+  ["https://google.com/", "browser"],
   ["https://claude.ai/new", "claude"],
   ["https://claude.ai/chat/abc", "claude"],
   ["https://www.claude.ai/new", "claude"],
-  ["https://example.com/", null],
-  ["https://notclaude.ai/", null],
-  ["https://claude.ai.evil.com/", null],
-  ["https://wikipedia.org/", null],
+  ["https://example.com/", "browser"],
+  ["https://notclaude.ai/", "browser"],
+  ["https://claude.ai.evil.com/", "browser"],
+  ["https://wikipedia.org/", "browser"],
 ];
 
 for (const [href, expected] of PAGES) {
   const found = sites.classify(href);
-  if (expected) {
-    assert.equal(found.ok, true, href);
-    assert.equal(found.adapter, expected, href);
-    assert.equal(found.label, sites.labelFor(expected), href);
+  assert.equal(found.ok, true, href);
+  assert.equal(found.adapter, expected, href);
+  assert.equal(found.host, new URL(href).hostname, href);
+  if (expected === "browser") {
+    assert.equal(found.label, found.host, href);
+    assert.equal(sites.knownAdapterForUrl(href), null, href);
   } else {
-    assert.equal(found.ok, false, href);
-    assert.match(found.error, /ChatGPT, Grok, Gemini, or Claude/);
-    assert.equal(sites.adapterForUrl(href), null, href);
+    assert.equal(sites.knownAdapterForUrl(href), expected, href);
   }
   for (const [file, id] of ADAPTERS) {
     const ctx = load("adapters/" + file, href);
     const adapter = ctx.ChatGPTAdapter || ctx.GeminiAdapter || ctx.GrokAdapter || ctx.ClaudeAdapter;
     assert.equal(adapter.identifyTab(), id === expected, `${file} ${href}`);
   }
+}
+
+for (const href of ["chrome://newtab", "about:blank", "file:///tmp/note.txt"]) {
+  const found = sites.classify(href);
+  assert.equal(found.ok, false, href);
+  assert.match(found.error, /not a browser session/);
+  assert.equal(sites.knownAdapterForUrl(href), null, href);
 }
 
 const loginSamples = [
@@ -93,9 +100,9 @@ for (const href of loginSamples) {
   assert.equal(sites.isLoginUrlFor("grok", href), session.isGrokAuthUrl(href), href);
 }
 assert.equal(sites.isLoginUrlFor("chatgpt", "https://auth.openai.com/log-in"), true);
-assert.equal(sites.adapterForUrl("https://auth.openai.com/log-in"), null);
+assert.equal(sites.knownAdapterForUrl("https://auth.openai.com/log-in"), null);
 assert.equal(sites.isLoginUrlFor("grok", "https://accounts.x.ai/sign-in"), true);
-assert.equal(sites.adapterForUrl("https://accounts.x.ai/sign-in"), null);
+assert.equal(sites.knownAdapterForUrl("https://accounts.x.ai/sign-in"), null);
 
 const options = ["chatgpt", "grok", "gemini", "claude"];
 for (const left of options) {
@@ -199,7 +206,7 @@ for (const left of options) {
 {
   const refused = sites.assignSlot(sites.emptyRegistry(), "LEFT", 1, "wikipedia");
   assert.equal(refused.ok, false);
-  assert.match(refused.error, /not a supported AI site/);
+  assert.match(refused.error, /not a browser session/);
   assert.equal(sites.assignSlot(sites.emptyRegistry(), "BOT3", 1, "claude").ok, false);
   assert.match(sites.pairConnectionMessage("Could not establish connection. Receiving end does not exist."), /Reload the page/);
 }
@@ -229,6 +236,88 @@ for (const left of options) {
   assert.equal(latest.text, "newest claude reply");
   assert.equal(ctx.ClaudeAdapter.id, "claude");
   assert.throws(() => ctx.ClaudeAdapter.setComposerText("hello"), /Claude composer not found/);
+}
+
+// Two tabs of a site with no dedicated adapter stay distinct and share the host.
+{
+  const left = sites.classify("https://example.com/session-a");
+  const right = sites.classify("https://example.com/session-b");
+  const paired = sites.assignSlot(
+    sites.assignSlot(sites.emptyRegistry(), "LEFT", 11, left.adapter, left.host).registry,
+    "RIGHT",
+    22,
+    right.adapter,
+    right.host
+  );
+  assert.equal(paired.ok, true);
+  assert.equal(paired.registry.LEFT.adapter, "browser");
+  assert.equal(paired.registry.RIGHT.adapter, "browser");
+  assert.equal(paired.registry.LEFT.host, "example.com");
+  assert.equal(paired.registry.RIGHT.host, "example.com");
+  assert.equal(paired.registry.LEFT.tabId, 11);
+  assert.equal(paired.registry.RIGHT.tabId, 22);
+  assert.notEqual(paired.registry.LEFT.tabId, paired.registry.RIGHT.tabId);
+}
+
+// The generic adapter pastes into a chat box and reads an assistant article.
+// A page with no chat box is not scraped as a reply.
+{
+  function browserPage(href, extras) {
+    const ctx = {
+      URL,
+      window: { location: new URL(href) },
+      document: extras.document,
+      SideraDom: extras.dom,
+      globalThis: null,
+    };
+    ctx.globalThis = ctx;
+    vm.createContext(ctx);
+    vm.runInContext(fs.readFileSync(path.join(root, "adapters/browser.js"), "utf8"), ctx);
+    return ctx;
+  }
+  const article = {
+    innerText: "assistant says hello",
+    textContent: "assistant says hello",
+    matches() { return false; },
+    querySelector() { return null; },
+  };
+  const composer = { disabled: false, getAttribute() { return null; }, value: "" };
+  const withBox = browserPage("https://example.com/chat", {
+    document: {
+      querySelectorAll(sel) {
+        if (sel === "article") return [article];
+        return [];
+      },
+      querySelector() { return null; },
+    },
+    dom: {
+      queryFirst(selectors) {
+        return Array.isArray(selectors) && selectors[0] === "textarea" ? composer : null;
+      },
+      setComposerText(node, text) { node.value = text; },
+    },
+  });
+  assert.equal(withBox.BrowserAdapter.identifyTab(), true);
+  assert.equal(withBox.BrowserAdapter.id, "browser");
+  assert.equal(withBox.BrowserAdapter.getLatestAssistantMessage().text, "assistant says hello");
+  withBox.BrowserAdapter.setComposerText("ping");
+  assert.equal(composer.value, "ping");
+
+  const bare = browserPage("https://example.com/", {
+    document: {
+      querySelectorAll(sel) {
+        return sel === "article" ? [article] : [];
+      },
+      querySelector() { return null; },
+    },
+    dom: { queryFirst() { return null; } },
+  });
+  assert.equal(bare.BrowserAdapter.getLatestAssistantMessage(), null);
+  assert.throws(() => bare.BrowserAdapter.setComposerText("ping"), /no chat box/);
+  assert.equal(browserPage("chrome://newtab", {
+    document: { querySelectorAll() { return []; }, querySelector() { return null; } },
+    dom: { queryFirst() { return null; } },
+  }).BrowserAdapter.identifyTab(), false);
 }
 
 console.log("site pairing checks passed");

@@ -270,6 +270,7 @@
       globalThis.GeminiAdapter,
       globalThis.GrokAdapter,
       globalThis.ClaudeAdapter,
+      globalThis.BrowserAdapter,
     ];
     for (const site of sites) {
       if (site && typeof site.identifyTab === "function" && site.identifyTab()) return site;
@@ -607,7 +608,7 @@
         hemisphere = null;
         sendResponse({
           status: "rejected",
-          error: "This page is not a supported AI site. Open ChatGPT, Grok, Gemini, or Claude, then pair that tab.",
+          error: "Pair a web page. This tab is not a browser session Sidera can use.",
         });
       } else {
         hemisphere = msg.hemisphere;

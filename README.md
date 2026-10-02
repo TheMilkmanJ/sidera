@@ -1,8 +1,10 @@
 # Sidera Dual-Hemisphere Mediator
 
-Local turn-taking mediator between two browser AI tabs, LEFT and RIGHT, built to the Sidera Phase 1 build specification. Each side is chosen on its own from the sites that have an adapter: ChatGPT, Grok, Gemini, or Claude (claude.ai). The same site can be on both sides at once, as two different tabs. It uses the signed-in sessions in your default browser. There is no paid API and no localhost port. The browser talks to the Python host through native messaging (stdin/stdout).
+Local mediator between two browser sessions the operator already has open. It routes messages between LEFT and RIGHT, keeps memory, and logs activity. There is no paid API and no localhost port. The browser talks to the Python host through native messaging (stdin/stdout).
 
-The launcher opens a ChatGPT tab and a Grok tab as a starting window. Pair those, or replace either of them with Gemini or Claude, or open a second tab of the same site. ChatGPT on the left and Grok on the right still works. A page that is not one of those four sites does not pair. The long burn-ins (50, 100 and 215 turns) were run against Gemini because Grok's free-tier usage limits interrupt multi-hour sessions.
+Either side can be any web session, including two tabs of the same site. LEFT is taught `mediator/genesis_left.txt`. RIGHT is taught `mediator/genesis_right.txt`. Those files are different roles. They do not name a product, and they do not authorize a product list. A few hosts have a dedicated page adapter; every other web page uses the generic browser adapter. A page that is not a web page does not pair.
+
+The launcher opens a ChatGPT tab and a Grok tab as a starting window. Pair those, or pair any other two sessions instead, including the same site twice. Saved logins exist for ChatGPT and Grok. The long burn-ins (50, 100 and 215 turns) were run against Gemini because Grok's free-tier usage limits interrupt multi-hour sessions.
 
 The state machine runs `WAIT_LEFT` → `PROCESS` → `SEND_RIGHT` → `WAIT_RIGHT` → `PROCESS` → `SEND_LEFT`, and pauses itself after the configured number of autonomous turns (50 by default) so a burn-in has a fixed ceiling.
 
@@ -30,8 +32,9 @@ Python 3.11 or newer is required (`config.toml` is read with the standard librar
 | `mediator.max_autonomous_turns` | `50` | pause after this many autonomous turns (also adjustable in the popup) |
 | `mediator.autonomous_submissions` | `true` | `false` = monitor and log only, never paste |
 | `mediator.rotate_after_pastes` | `50` | move a side to a fresh, caught-up chat after this many pastes into one chat |
-| `genesis.enabled` | `true` | teach both AIs the tag protocol when Start is pressed |
-| `genesis.prompt_file` | `mediator/genesis_protocol.md` | the protocol text |
+| `genesis.enabled` | `true` | teach each side its own role when Start is pressed |
+| `genesis.left_file` | `mediator/genesis_left.txt` | role pasted into LEFT |
+| `genesis.right_file` | `mediator/genesis_right.txt` | role pasted into RIGHT |
 | `logging.level` | `INFO` | log verbosity |
 
 No personal paths or credentials are stored anywhere; the browser sessions provide authentication.
@@ -49,11 +52,11 @@ What the installer does:
 
 Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. The launcher reads the Windows default browser for `https` and opens ChatGPT and Grok there with the Sidera extension already loaded from `C:\Sidera\chrome-extension`; nothing needs to be loaded by hand. That works when the default browser is Chrome, Edge, Brave, Vivaldi, or Opera. Firefox cannot load this extension. If the default browser cannot, and one of the supported browsers is installed, Sidera tells you and opens that one instead. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
 
-In the extension popup: open ChatGPT, Grok, Gemini, or Claude, then pair that tab as LEFT or RIGHT. Do the same for the other side. Press Start. ChatGPT on the left and Grok on the right is still the pairing the launcher opens. If a paired ChatGPT or Grok tab is already signed in, Sidera goes straight on. If either of those is signed out, Sidera opens that site's own login page. Gemini and Claude use the account already signed in in the browser. In the popup, under Saved logins, choose ChatGPT or Grok. Save login stores the email and password once. Change password replaces a saved password. Forget login removes it. Each login is stored under `C:\Sidera\data\credentials`, encrypted with Windows for that user account, and reused the next time that site is signed out. Passwords are not written to the transcript or the log. If a site asks for an email code or a captcha, finish that in the browser; Sidera continues as soon as the chat box is back. The Genesis Protocol (below) runs after sign-in, then Sidera waits for your opening message in the LEFT tab.
+In the extension popup: open the browser session you want, then pair that tab as LEFT or RIGHT. Do the same for the other side. The two sides stay independent, including two tabs of the same site. Press Start. If a paired ChatGPT or Grok tab is already signed in, Sidera goes straight on. If either of those is signed out, Sidera opens that site's own login page. Every other session uses the account already signed in in the browser. In the popup, under Saved logins, choose ChatGPT or Grok. Save login stores the email and password once. Change password replaces a saved password. Forget login removes it. Each login is stored under `C:\Sidera\data\credentials`, encrypted with Windows for that user account, and reused the next time that site is signed out. Passwords are not written to the transcript or the log. If a site asks for an email code or a captcha, finish that in the browser; Sidera continues as soon as the chat box is back. Each side is then taught its own role (below), and Sidera waits for your opening message in the LEFT tab.
 
 ## Operator controls (extension popup)
 
-- **Pair LEFT / Pair RIGHT**: assign the active tab. The tab must be ChatGPT, Grok, Gemini, or Claude; any other page is refused. Each side is independent, and both sides can be the same site when they are different tabs. **Start Exchange**, **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
+- **Pair LEFT / Pair RIGHT**: assign the active tab. Any web page can be either side, including two tabs of the same site. A page that is not a web page is refused. One tab cannot occupy both sides. **Start Exchange**, **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
 - **Manual forward** LEFT → RIGHT or RIGHT → LEFT: copies the newest completed reply once, through the same ledger and tag processing.
 - **Maximum autonomous turns**: change the ceiling while running; the value is remembered across restarts.
 - **Open data folder / Open latest log**.
@@ -61,11 +64,11 @@ In the extension popup: open ChatGPT, Grok, Gemini, or Claude, then pair that ta
 
 ## Genesis Protocol
 
-When you press Start, the mediator pastes `mediator/genesis_protocol.md` into the LEFT tab, waits for the AI to answer `READY`, does the same in the RIGHT tab, and only then enters the normal loop. The protocol tells each AI that it is one hemisphere of a two-AI conversation and teaches it the Sidera tags for saving memories and files. `READY` replies are acknowledgements: they are logged in the transcript but never forwarded or counted as turns.
+When you press Start, the mediator pastes `mediator/genesis_left.txt` into the LEFT tab and `mediator/genesis_right.txt` into the RIGHT tab. The two files stay different: LEFT is the convergent role and answers `[[READY:LEFT]] … [[/READY]]`; RIGHT is the divergent role and answers `[[READY:RIGHT]] … [[/READY]]`. A reply that claims the other role does not advance the handshake. A bare `READY` still counts as that side's acknowledgement. Those replies are logged in the transcript but never forwarded or counted as turns. Only after both sides acknowledge does the normal loop start.
 
-If a side has to start a fresh chat mid-session (see "Long sessions"), the extension pastes the protocol into the new chat first, waits for `READY`, then continues with the pending message.
+If a side has to start a fresh chat mid-session (see "Long sessions"), the extension pastes that side's own role into the new chat first, waits for its acknowledgement, then continues with the pending message.
 
-The prompt is plain text; edit `mediator/genesis_protocol.md` to change the wording. Every tag example in it is checked by the tests against the real parser. Set the environment variable `SIDERA_GENESIS=off` to skip the handshake (used by the pure copy-paste checks).
+Edit the two role files to change the wording. Set the environment variable `SIDERA_GENESIS=off` to skip the handshake (used by the pure copy-paste checks). `mediator/genesis_protocol.md` is the older shared tag brief; Start does not paste it.
 
 ## What a session saves
 
@@ -113,7 +116,7 @@ whole file content (creates or replaces)
 [[SIDERA: READY]]
 ```
 
-`[[MEMORY:category]]` is the short memory tag from the brief; it saves to the given category under project `default`. `MEMORY_READ`, `FILE_READ` and `FILE_LIST` results are attached to the forwarded reply. The short spellings `SAVE` (a memory, or a file when `path=` is given), `RECALL`, `READ`, `WRITE`, `LIST`, `REMEMBER` and `APPEND` are accepted as aliases.
+`[[MEMORY:category]]` is the short memory tag from the role files; it saves to the given category under project `default`. The role files also use `[[RECALL:category]] … [[/RECALL]]` (memory read), `[[READ:relative/path]][[/READ]]` (file read), and `[[SAVE:relative/path]] … [[/SAVE]]` (file write). A `[[SIDERA: SAVE path="…"]]` tag still appends. `MEMORY_READ`, `FILE_READ` and `FILE_LIST` results are attached to the next message pasted back into the side that asked. The short spellings `RECALL`, `READ`, `WRITE`, `LIST`, `REMEMBER` and `APPEND` are accepted as aliases of the `SIDERA:` forms.
 
 ## Long sessions
 
@@ -130,7 +133,7 @@ Very long single chats are where ChatGPT, Grok, Gemini and Claude start hanging 
 
 | test | how it is met | where verified |
 | --- | --- | --- |
-| Tab pairing | popup pairs the active tab as LEFT or RIGHT; each side is ChatGPT, Grok, Gemini, or Claude, detected from the tab, including the same site on both sides | `tests/test_sites.js`, `tests/test_content_recovery.js` |
+| Tab pairing | popup pairs the active web tab as LEFT or RIGHT, including two tabs of the same site; a non-web page is refused | `tests/test_sites.js`, `tests/test_content_recovery.js`, `tests/test_genesis_protocol.py` |
 | Response detection | stop-control state plus 2.5 s of stable text; interim status lines and canned errors are never forwarded | `tests/test_completion.js`, live |
 | One-way transfer | `SUBMIT_MESSAGE` → adapter paste → trusted Send click when needed → `SUBMISSION_CONFIRMED` | live |
 | Autonomous loop ≥ 50 turns | runs of 50, 100 and 215 alternating turns completed; long-session recoveries in place | live burn-ins |

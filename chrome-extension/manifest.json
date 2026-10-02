@@ -3,7 +3,7 @@
   "name": "Sidera Dual-Hemisphere Mediator",
   "version": "1.0.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0V6iaUDJhHkVtAO2z+iqOeaib4n5Y/JKHYHw5ZZiqaLLiWIVUd2PjsfGQb37lDVi6ZEQDa8xNt4IvyHFWGBtiSfKYbiI+ExAgKkG9D3eq99/tdO/67nb5+hKvPKfDZEwu7Bwhn1PWq446+XswerTlfvRgMgg0/axLbuCUyd/TXzq5abhKmGiKBLGzkPHaPZPXEzLP1qJiRHuuSI8NZW0wL4Uir7f5nRUfoWSuS/pBu9QPzAMLblhy4u/uiEOBUJ9oe+50c1fLCbF5r/QBN40LYhWiRZYYhfcjbO8Bf8a5X4aOfKprPE9vUc3vGpiddrJ8pQzetvZ+BDaxdf9mab9WQIDAQAB",
-  "description": "Local browser bridge and turn-taking mediator between two browser AIs. Each side can be ChatGPT, Grok, Gemini, or Claude.",
+  "description": "Local mediator between two browser sessions the operator chooses. LEFT and RIGHT keep different roles.",
   "permissions": [
     "tabs",
     "activeTab",
@@ -24,7 +24,9 @@
     "https://accounts.x.ai/*",
     "https://gemini.google.com/*",
     "https://claude.ai/*",
-    "https://*.claude.ai/*"
+    "https://*.claude.ai/*",
+    "http://*/*",
+    "https://*/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -46,7 +48,9 @@
         "https://accounts.x.ai/*",
         "https://gemini.google.com/*",
         "https://claude.ai/*",
-        "https://*.claude.ai/*"
+        "https://*.claude.ai/*",
+        "http://*/*",
+        "https://*/*"
       ],
       "js": [
         "dom_utils.js",
@@ -56,6 +60,7 @@
         "adapters/gemini.js",
         "adapters/grok.js",
         "adapters/claude.js",
+        "adapters/browser.js",
         "content.js"
       ],
       "run_at": "document_idle"

@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const slot = data.slots && data.slots[side];
     const paired = !!(slot && slot.tabId) || (!data.slots && (side === "LEFT" ? data.leftPaired : data.rightPaired));
     button.classList.toggle("paired", paired);
-    const label = paired ? siteLabel(slot && slot.adapter) : "";
+    const label = paired ? ((slot && slot.host) || siteLabel(slot && slot.adapter)) : "";
     button.innerText = label ? side + " · " + label + " ✓" : (paired ? side + " paired ✓" : "Pair " + side);
   }
 
@@ -141,7 +141,7 @@ document.addEventListener("DOMContentLoaded", () => {
         statusMessage.innerText = (resp && resp.error) || runtimeMessage || "Could not pair this tab.";
         return;
       }
-      const label = resp.label || "AI";
+      const label = resp.label || resp.host || "this tab";
       statusMessage.innerText = resp.displaced
         ? "Paired this tab as " + side + " (" + label + "). Removed it from " + resp.displaced + " so each side keeps its own tab."
         : "Paired this tab as " + side + " (" + label + ").";
@@ -157,7 +157,7 @@ document.addEventListener("DOMContentLoaded", () => {
         statusMessage.innerText = resp.error || "Could not start.";
       }
     });
-    statusMessage.innerText = "Checking sign-in, then teaching the protocol.";
+    statusMessage.innerText = "Checking sign-in, then teaching each side its role.";
   });
 
   btnPause.addEventListener("click", () => {

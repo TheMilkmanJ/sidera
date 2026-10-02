@@ -25,11 +25,12 @@ rotate_after_pastes = 50
 autonomous_submissions = true
 
 [genesis]
-# Teach both AIs the Sidera tag protocol when Start is pressed (and again in
-# any fresh chat a side has to open). Set to false to skip the handshake and
-# start straight in WAIT_LEFT.
+# Teach each side its own role when Start is pressed (and again in any fresh
+# chat that side has to open). The two files stay different. Set enabled to
+# false to skip the handshake and start straight in WAIT_LEFT.
 enabled = true
-prompt_file = "mediator/genesis_protocol.md"
+left_file = "mediator/genesis_left.txt"
+right_file = "mediator/genesis_right.txt"
 
 [logging]
 # DEBUG, INFO, WARNING or ERROR

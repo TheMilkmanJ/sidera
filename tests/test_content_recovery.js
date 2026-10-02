@@ -482,7 +482,7 @@ function makeContext() {
   let response = null;
   t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "LEFT" }, {}, (resp) => { response = resp; });
   assert.strictEqual(response.status, "rejected");
-  assert.ok(/ChatGPT, Grok, Gemini, or Claude/.test(response.error), response.error);
+  assert.ok(/not a browser session/.test(response.error), response.error);
   t.site.latest = "This page should not count as a reply.";
   t.advance(3000);
   t.ctx.__sideraHeartbeat();

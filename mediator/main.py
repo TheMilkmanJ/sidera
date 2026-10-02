@@ -20,11 +20,12 @@ from mediator.logging_config import setup_logging
 from mediator.memory_store import MemoryStore
 from mediator.message_ledger import MessageLedger
 from mediator.state_machine import MediatorState, StateMachine
-from mediator.tag_parser import TagParser, is_ready_acknowledgement
+from mediator.tag_parser import TagParser, is_ready_acknowledgement, ready_role
 
 logger = logging.getLogger("sidera.core")
 
-GENESIS_PROMPT_PATH = Path(__file__).resolve().parent / "genesis_protocol.md"
+GENESIS_LEFT_PATH = Path(__file__).resolve().parent / "genesis_left.txt"
+GENESIS_RIGHT_PATH = Path(__file__).resolve().parent / "genesis_right.txt"
 GENESIS_MESSAGE_PREFIX = "GENESIS-"
 ACTIVE_STATES = (
     MediatorState.WAIT_LEFT,
@@ -37,7 +38,7 @@ ACTIVE_STATES = (
 )
 
 
-def load_genesis_prompt(path: Path = GENESIS_PROMPT_PATH) -> str:
+def load_genesis_prompt(path: Path) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
@@ -66,8 +67,16 @@ class MediatorService:
             env = os.environ.get("SIDERA_GENESIS")
             genesis_enabled = self.config.genesis_enabled if env is None else env.lower() not in ("off", "0", "false", "no")
         self.genesis_enabled = genesis_enabled
-        prompt_path = self.config.genesis_prompt_file if self.config.genesis_prompt_file.exists() else GENESIS_PROMPT_PATH
-        self.genesis_prompt = load_genesis_prompt(prompt_path) if genesis_enabled else ""
+        # LEFT and RIGHT are different roles. Each file is pasted only into its side.
+        if genesis_enabled:
+            left_path = self.config.genesis_left_file if self.config.genesis_left_file.exists() else GENESIS_LEFT_PATH
+            right_path = self.config.genesis_right_file if self.config.genesis_right_file.exists() else GENESIS_RIGHT_PATH
+            self.genesis_roles = {
+                "LEFT": load_genesis_prompt(left_path),
+                "RIGHT": load_genesis_prompt(right_path),
+            }
+        else:
+            self.genesis_roles = {"LEFT": "", "RIGHT": ""}
         self.genesis_pending: List[str] = []
         self.genesis_target: Optional[str] = None
         self.genesis_initial_side = "LEFT"
@@ -217,7 +226,11 @@ class MediatorService:
         other = "RIGHT" if initial_side == "LEFT" else "LEFT"
         self.genesis_initial_side = initial_side
         self.genesis_pending = [initial_side, other]
-        self.ipc.send_message({"type": "GENESIS_TEXT", "text": self.genesis_prompt})
+        self.ipc.send_message({
+            "type": "GENESIS_TEXTS",
+            "left": self.genesis_roles["LEFT"],
+            "right": self.genesis_roles["RIGHT"],
+        })
         self._write_transcript_line("- **Genesis:** protocol handshake started\n")
         self._send_genesis_to_next()
 
@@ -236,7 +249,7 @@ class MediatorService:
             "type": "SUBMIT_MESSAGE",
             "destination": self.genesis_target,
             "message_id": f"{GENESIS_MESSAGE_PREFIX}{self.genesis_target}",
-            "text": self.genesis_prompt,
+            "text": self.genesis_roles.get(self.genesis_target, ""),
         })
 
     def _handle_genesis_reply(self, source: str, raw_content: str) -> bool:
@@ -245,6 +258,13 @@ class MediatorService:
             return False
         if source != self.genesis_target:
             logger.warning("Ignored reply from %s while waiting for %s to acknowledge the Genesis Protocol", source, self.genesis_target)
+            return True
+        claimed = ready_role(raw_content)
+        if claimed and claimed != source:
+            logger.warning("GENESIS reply from %s claimed the %s role; still waiting for its own role", source, claimed)
+            self._write_transcript_line(
+                f"- **Genesis:** `{source}` answered with the {claimed} role; still waiting for its own role\n"
+            )
             return True
         if is_ready_acknowledgement(raw_content):
             logger.info("GENESIS acknowledged by %s (READY)", source)
@@ -475,7 +495,7 @@ class MediatorService:
                 "type": "SETTINGS",
                 "rotate_after_pastes": self.config.rotate_after_pastes,
             })
-            if self.genesis_enabled and self.genesis_prompt:
+            if self.genesis_enabled and (self.genesis_roles["LEFT"] or self.genesis_roles["RIGHT"]):
                 self._begin_genesis(initial_side)
             else:
                 self.state_machine.start(initial_side)

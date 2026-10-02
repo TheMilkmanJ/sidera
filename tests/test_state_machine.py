@@ -63,6 +63,12 @@ class TestStateMachine(unittest.TestCase):
         self.assertEqual(self.sm.slots["LEFT"].adapter_type, "chatgpt")
         self.assertEqual(self.sm.slots["RIGHT"].adapter_type, "grok")
         self.assertNotEqual(self.sm.slots["LEFT"].tab_id, self.sm.slots["RIGHT"].tab_id)
+        self.sm.register_slot("LEFT", "browser", 41)
+        self.sm.register_slot("RIGHT", "browser", 42)
+        self.assertEqual(self.sm.slots["LEFT"].adapter_type, "browser")
+        self.assertEqual(self.sm.slots["RIGHT"].adapter_type, "browser")
+        self.assertEqual(self.sm.slots["LEFT"].tab_id, 41)
+        self.assertEqual(self.sm.slots["RIGHT"].tab_id, 42)
 
     def test_dynamic_slot_registration_and_routing(self):
         self.sm.register_slot("BOT3", "claude")

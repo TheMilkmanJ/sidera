@@ -1,8 +1,8 @@
 /**
- * Which browser tabs Sidera can pair, and which saved login each one uses.
- * LEFT and RIGHT are chosen independently from this list. A hostname that is
- * not here does not pair. ChatGPT and Grok still have saved logins; Gemini
- * and Claude use the account already signed in in the browser.
+ * Pairing is by tab, not by a product menu. Any http(s) page can be LEFT or
+ * RIGHT, including two tabs of the same host. A few hosts have a dedicated
+ * DOM adapter; every other web page uses the generic "browser" adapter.
+ * Saved logins exist only where a login helper was already built.
  */
 const SideraSites = {
   SITES: [
@@ -10,10 +10,11 @@ const SideraSites = {
     { id: "grok", label: "Grok", login: "grok" },
     { id: "gemini", label: "Gemini", login: null },
     { id: "claude", label: "Claude", login: null },
+    { id: "browser", label: "Browser", login: null },
   ],
 
   emptySlot() {
-    return { adapter: null, tabId: null };
+    return { adapter: null, tabId: null, host: null };
   },
 
   emptyRegistry() {
@@ -31,12 +32,12 @@ const SideraSites = {
   },
 
   unsupportedMessage() {
-    return "This page is not a supported AI site. Open ChatGPT, Grok, Gemini, or Claude, then pair that tab.";
+    return "Pair a web page. This tab is not a browser session Sidera can use.";
   },
 
   pairConnectionMessage(raw) {
     if (raw && /receiving end does not exist|could not establish connection/i.test(raw)) {
-      return "This tab has no Sidera adapter. Reload the page if it is ChatGPT, Grok, Gemini, or Claude, then pair it again.";
+      return "This tab is not ready. Reload the page, then pair it again.";
     }
     return raw || "This tab did not pair. Reload it and try again.";
   },
@@ -54,9 +55,9 @@ const SideraSites = {
     return host === name || host.endsWith("." + name);
   },
 
-  // Matches the adapters' identifyTab() rules. Login hosts that are not the
-  // chat host (auth.openai.com, accounts.x.ai) are intentionally absent.
-  adapterForUrl(url) {
+  // Dedicated adapters, when this host already has one. Other web pages are
+  // still pairable; classify() assigns them the generic browser adapter.
+  knownAdapterForUrl(url) {
     const loc = this._parsed(url);
     if (!loc) return null;
     const host = loc.hostname.toLowerCase();
@@ -70,9 +71,17 @@ const SideraSites = {
   },
 
   classify(url) {
-    const adapter = this.adapterForUrl(url);
-    if (!adapter) return { ok: false, error: this.unsupportedMessage() };
-    return { ok: true, adapter: adapter, label: this.labelFor(adapter) };
+    const loc = this._parsed(url);
+    if (!loc || (loc.protocol !== "http:" && loc.protocol !== "https:")) {
+      return { ok: false, error: this.unsupportedMessage() };
+    }
+    const known = this.knownAdapterForUrl(url);
+    return {
+      ok: true,
+      adapter: known || "browser",
+      label: loc.hostname,
+      host: loc.hostname,
+    };
   },
 
   // Sign-in pages the chat host redirects to. A paired tab may sit here
@@ -112,8 +121,8 @@ const SideraSites = {
     };
   },
 
-  // Saved-login checks for the paired tabs, LEFT then RIGHT. Gemini and
-  // Claude are omitted; they have no saved login.
+  // Saved-login checks for paired tabs that have one, LEFT then RIGHT.
+  // Other sessions use whatever account is already signed in in the browser.
   loginQueue(registry) {
     const queue = [];
     for (const slotId of ["LEFT", "RIGHT"]) {
@@ -133,7 +142,7 @@ const SideraSites = {
 
   // One tab occupies one side. Pairing it to the other side removes it from
   // the first so a reply cannot be counted twice.
-  assignSlot(registry, slotId, tabId, adapter) {
+  assignSlot(registry, slotId, tabId, adapter, host) {
     const side = String(slotId || "").toUpperCase();
     if (side !== "LEFT" && side !== "RIGHT") {
       return { ok: false, error: "Choose LEFT or RIGHT." };
@@ -151,13 +160,13 @@ const SideraSites = {
       next[other] = this.emptySlot();
       displaced = other;
     }
-    next[side] = { adapter: adapter, tabId: tabId };
+    next[side] = { adapter: adapter, tabId: tabId, host: host || null };
     return { ok: true, registry: next, displaced: displaced };
   },
 
   _copySlot(slot) {
     if (!slot || !slot.tabId) return this.emptySlot();
-    return { adapter: slot.adapter || null, tabId: slot.tabId };
+    return { adapter: slot.adapter || null, tabId: slot.tabId, host: slot.host || null };
   },
 };
 
