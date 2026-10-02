@@ -137,6 +137,6 @@ if ($wantDesktopIcon) {
 }
 
 Write-Host ""
-Write-Host "Done. Double-click Sidera Mediator. Your default browser opens ChatGPT and Grok with the extension loaded."
+Write-Host "Done. Double-click Sidera Mediator. The browser starts with the extension loaded and does not open a page. Pair the tabs you already have."
 Write-Host "Supported browsers: Chrome, Edge, Brave, Vivaldi, and Opera. Firefox cannot load the extension."
 Write-Host "Extension ID pekgjaanmdkkpclhlobpcggibbkgjbgd"

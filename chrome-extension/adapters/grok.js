@@ -14,6 +14,7 @@
  *   The finished reply is [data-testid="assistant-message"] inside [id^="response-"].
  */
 const GrokAdapter = {
+  id: "grok",
   name: "Grok",
   selectors: {
     userMessage: [

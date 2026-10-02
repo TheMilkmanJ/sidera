@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mediator.main import GENESIS_PROMPT_PATH, MediatorService, load_genesis_prompt
+from mediator.main import GENESIS_LEFT_PATH, GENESIS_RIGHT_PATH, MediatorService, load_genesis_prompt
 from mediator.state_machine import MediatorState
-from mediator.tag_parser import TagParser, is_ready_acknowledgement
+from mediator.tag_parser import TagParser, is_ready_acknowledgement, ready_role
 
 
 class GenesisProtocolTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class GenesisProtocolTests(unittest.TestCase):
         return [p for p in self.sent if p["type"] == "SUBMIT_MESSAGE"]
 
     def test_prompt_teaches_the_client_tag_grammar(self):
-        prompt = load_genesis_prompt()
+        prompt = load_genesis_prompt(Path(__file__).resolve().parent.parent / "mediator" / "genesis_protocol.md")
         # Canonical spelling from the build spec, section 8: no space after "SIDERA:".
         for needle in (
             '[[SIDERA:MEMORY_WRITE category="inventions" project="gyrocell"]]',
@@ -51,18 +51,40 @@ class GenesisProtocolTests(unittest.TestCase):
             # The legacy [[MEMORY:...]] example in the prompt parses as a second MEMORY_WRITE.
             sorted(["MEMORY_WRITE", "MEMORY_WRITE", "MEMORY_READ", "FILE_APPEND", "FILE_WRITE", "FILE_READ", "FILE_LIST", "STATUS", "PAUSE", "STOP"]),
         )
-        self.assertTrue(GENESIS_PROMPT_PATH.exists())
+        self.assertTrue((Path(__file__).resolve().parent.parent / "mediator" / "genesis_protocol.md").exists())
+
+    def test_role_files_stay_different_and_name_no_product(self):
+        left = load_genesis_prompt(GENESIS_LEFT_PATH)
+        right = load_genesis_prompt(GENESIS_RIGHT_PATH)
+        self.assertNotEqual(left, right)
+        self.assertIn("HEMISPHERE: LEFT", left)
+        self.assertIn("CONVERGENT REASONING", left)
+        self.assertIn("[[READY:LEFT]]", left)
+        self.assertNotIn("DIVERGENT REASONING", left)
+        self.assertIn("HEMISPHERE: RIGHT", right)
+        self.assertIn("DIVERGENT REASONING", right)
+        self.assertIn("[[READY:RIGHT]]", right)
+        self.assertNotIn("CONVERGENT REASONING", right)
+        for banned in ("ChatGPT", "Grok", "Gemini", "Claude"):
+            self.assertNotIn(banned, left)
+            self.assertNotIn(banned, right)
 
     def test_handshake_teaches_both_sides_before_the_first_turn(self):
         service = self.make_service(genesis_enabled=True)
         service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
 
         self.assertEqual(service.state_machine.state, MediatorState.IDLE)
-        self.assertEqual([p["type"] for p in self.sent][:3], ["SETTINGS", "GENESIS_TEXT", "SUBMIT_MESSAGE"])
+        self.assertEqual([p["type"] for p in self.sent][:3], ["SETTINGS", "GENESIS_TEXTS", "SUBMIT_MESSAGE"])
+        texts = [p for p in self.sent if p["type"] == "GENESIS_TEXTS"][0]
+        self.assertEqual(texts["left"], service.genesis_roles["LEFT"])
+        self.assertEqual(texts["right"], service.genesis_roles["RIGHT"])
+        self.assertNotEqual(texts["left"], texts["right"])
         first = self.submits()[0]
         self.assertEqual(first["destination"], "LEFT")
         self.assertEqual(first["message_id"], "GENESIS-LEFT")
-        self.assertIn("[SIDERA GENESIS PROTOCOL]", first["text"])
+        self.assertEqual(first["text"], service.genesis_roles["LEFT"])
+        self.assertIn("CONVERGENT REASONING", first["text"])
+        self.assertNotIn("DIVERGENT REASONING", first["text"])
 
         # A capture from the other side during the handshake is ignored.
         service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "Hello?"})
@@ -72,6 +94,9 @@ class GenesisProtocolTests(unittest.TestCase):
         service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "READY"})
         second = self.submits()[1]
         self.assertEqual((second["destination"], second["message_id"]), ("RIGHT", "GENESIS-RIGHT"))
+        self.assertEqual(second["text"], service.genesis_roles["RIGHT"])
+        self.assertIn("DIVERGENT REASONING", second["text"])
+        self.assertNotIn("CONVERGENT REASONING", second["text"])
         self.assertEqual(service.state_machine.state, MediatorState.IDLE)
 
         service.handle_message({"type": "SUBMISSION_CONFIRMED", "destination": "RIGHT", "message_id": "GENESIS-RIGHT"})
@@ -97,6 +122,74 @@ class GenesisProtocolTests(unittest.TestCase):
         self.assertIn("protocol handshake started", body)
         self.assertIn("`LEFT` replied READY", body)
         self.assertIn("**Genesis:** complete", body)
+
+    def test_a_side_has_no_site_until_the_operator_selects_one(self):
+        service = self.make_service(genesis_enabled=False)
+        self.assertEqual(service.state_machine.slots["LEFT"].adapter_type, "")
+        self.assertEqual(service.state_machine.slots["RIGHT"].adapter_type, "")
+        self.assertIsNone(service.state_machine.slots["LEFT"].tab_id)
+        self.assertIsNone(service.state_machine.slots["RIGHT"].tab_id)
+        service.handle_message({"type": "HOOK_SLOT", "slot_id": "LEFT"})
+        self.assertEqual(service.state_machine.slots["LEFT"].adapter_type, "")
+        self.assertIsNone(service.state_machine.slots["LEFT"].tab_id)
+
+    def test_two_sessions_of_one_site_keep_their_own_roles(self):
+        service = self.make_service(genesis_enabled=True)
+        service.handle_message({"type": "HOOK_SLOT", "slot_id": "LEFT", "adapter_type": "browser", "tab_id": 11})
+        service.handle_message({"type": "HOOK_SLOT", "slot_id": "RIGHT", "adapter_type": "browser", "tab_id": 22})
+        self.assertEqual(service.state_machine.slots["LEFT"].adapter_type, "browser")
+        self.assertEqual(service.state_machine.slots["RIGHT"].adapter_type, "browser")
+        self.assertEqual(service.state_machine.slots["LEFT"].tab_id, 11)
+        self.assertEqual(service.state_machine.slots["RIGHT"].tab_id, 22)
+        self.assertNotEqual(service.state_machine.slots["LEFT"].tab_id, service.state_machine.slots["RIGHT"].tab_id)
+
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        left_paste = self.submits()[0]["text"]
+        self.assertEqual(left_paste, load_genesis_prompt(GENESIS_LEFT_PATH))
+        self.assertNotEqual(left_paste, load_genesis_prompt(GENESIS_RIGHT_PATH))
+
+        wrong = "[[READY:RIGHT]]\nSIDERA RIGHT HEMISPHERE ONLINE\n[[/READY]]"
+        self.assertEqual(ready_role(wrong), "RIGHT")
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": wrong})
+        self.assertEqual(len(self.submits()), 1, "the other role does not advance the handshake")
+        self.assertEqual(service.genesis_target, "LEFT")
+        self.assertIsNone(service.ledger.get_last_message(service.conversation_id))
+
+        service.handle_message({
+            "type": "RESPONSE_CAPTURED",
+            "source": "LEFT",
+            "content": "[[READY:LEFT]]\nSIDERA LEFT HEMISPHERE ONLINE\n[[/READY]]",
+        })
+        right_paste = self.submits()[1]["text"]
+        self.assertEqual(self.submits()[1]["destination"], "RIGHT")
+        self.assertEqual(right_paste, load_genesis_prompt(GENESIS_RIGHT_PATH))
+        self.assertNotIn(left_paste, right_paste)
+        service.handle_message({
+            "type": "RESPONSE_CAPTURED",
+            "source": "RIGHT",
+            "content": "[[READY:RIGHT]]\nSIDERA RIGHT HEMISPHERE ONLINE\n[[/READY]]",
+        })
+        self.assertEqual(service.state_machine.state, MediatorState.WAIT_LEFT)
+
+        service.handle_message({
+            "type": "RESPONSE_CAPTURED",
+            "source": "LEFT",
+            "content": "Opening note from the left session.\n[[MEMORY:notes]]\nbearings\n[[/MEMORY]]",
+        })
+        forwarded = self.submits()[2]
+        self.assertEqual((forwarded["destination"], forwarded["message_id"]), ("RIGHT", "SIDERA-0000001"))
+        self.assertEqual(forwarded["text"], "Opening note from the left session.")
+        self.assertNotIn("CONVERGENT REASONING", forwarded["text"])
+        self.assertNotIn("DIVERGENT REASONING", forwarded["text"])
+        self.assertNotIn("[[READY:", forwarded["text"])
+        self.assertTrue((self.root / "memory" / "notes.jsonl").exists())
+        transcript = "\n".join(p.read_text(encoding="utf-8") for p in (self.root / "transcripts").glob("*.md"))
+        self.assertIn("SIDERA-0000001", transcript)
+        self.assertIn("Opening note from the left session.", transcript)
+        self.assertIn("answered with the RIGHT role", transcript)
+        log = (self.root / "logs" / "sidera_mediator.log").read_text(encoding="utf-8")
+        self.assertIn("RESPONSE_CAPTURED", log)
+        self.assertIn("GENESIS reply from LEFT claimed the RIGHT role", log)
 
     def test_non_ready_answer_still_moves_the_handshake_along(self):
         service = self.make_service(genesis_enabled=True)
@@ -273,6 +366,27 @@ class ReadyAndAliasTests(unittest.TestCase):
             [op["type"] for op in operations],
             ["MEMORY_WRITE", "FILE_APPEND", "MEMORY_READ", "FILE_READ", "READY"],
         )
+
+    def test_role_file_tags_parse_and_a_swapped_ready_block_is_visible(self):
+        parser = TagParser()
+        text = (
+            "Note.\n"
+            "[[MEMORY:notes]]\nbearings\n[[/MEMORY]]\n"
+            "[[RECALL:notes]]\nbearings\n[[/RECALL]]\n"
+            "[[READ:notes/a.txt]][[/READ]]\n"
+            "[[SAVE:notes/a.txt]]\nwhole file\n[[/SAVE]]\n"
+        )
+        clean, operations, errors = parser.parse(text)
+        self.assertEqual(errors, [])
+        self.assertEqual(clean, "Note.")
+        self.assertEqual(
+            [op["type"] for op in operations],
+            ["MEMORY_WRITE", "MEMORY_READ", "FILE_READ", "FILE_WRITE"],
+        )
+        ready = "[[READY:LEFT]]\nSIDERA LEFT HEMISPHERE ONLINE\n[[/READY]]"
+        self.assertEqual(ready_role(ready), "LEFT")
+        self.assertTrue(is_ready_acknowledgement(ready))
+        self.assertEqual(ready_role("hello\n" + ready), "")
 
 
 if __name__ == "__main__":

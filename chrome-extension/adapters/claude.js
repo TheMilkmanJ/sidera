@@ -1,56 +1,69 @@
 /**
- * Gemini (gemini.google.com) DOM adapter.
- * Measured on the signed-in Gemini app:
- * - Composer is div.ql-editor[aria-label="Enter a prompt for Gemini"].
- * - Submit is button[aria-label="Send message"].
- * - While a reply streams, that control becomes button[aria-label="Stop response"].
- * - The finished answer is message-content inside model-response.
+ * Claude (claude.ai) DOM adapter.
+ * Selectors are tried in priority order.
+ *
+ * Observed on claude.ai:
+ * - The composer is [data-testid="chat-input"] (a ProseMirror field).
+ * - Submit is button[aria-label="Send message"] (also "Send Message").
+ * - While a reply streams, that control becomes a stop button
+ *   (aria-label "Stop response").
+ * - User turns are [data-testid="user-message"].
+ * - The finished answer is .font-claude-response, with the prose in
+ *   .standard-markdown when that wrapper is present.
  */
-const GeminiAdapter = {
-  id: "gemini",
-  name: "Gemini",
+const ClaudeAdapter = {
+  id: "claude",
+  name: "Claude",
   selectors: {
     userMessage: [
-      'user-query',
-      '.user-query-container',
+      '[data-testid="user-message"]',
+      ".font-user-message",
+      '[data-testid="human-message"]',
     ],
     newChatControl: [
-      'a[aria-label="New chat"][href="/app"]',
       'a[aria-label="New chat"]',
       'button[aria-label="New chat"]',
+      'a[href="/new"]',
     ],
     assistantMessage: [
-      "model-response message-content",
-      "model-response",
-      "message-content",
+      ".font-claude-response",
+      ".font-claude-message",
+      '[data-testid="assistant-message"]',
+      '[data-testid="ai-message"]',
     ],
     messageContent: [
+      ".standard-markdown",
+      ".progressive-markdown",
       ".markdown",
-      "message-content",
-      ".model-response-text",
+      ".prose",
+      '[class*="markdown"]',
     ],
     stopButton: [
       'button[aria-label="Stop response"]',
       'button[aria-label="Stop generating"]',
+      'button[aria-label="Stop Message"]',
       'button[aria-label="Stop"]',
+      'button[data-testid="stop-button"]',
       'button[aria-label*="Stop"]',
     ],
     sendButton: [
       'button[aria-label="Send message"]',
+      'button[aria-label="Send Message"]',
       'button[aria-label="Send"]',
       'button[data-testid="send-button"]',
     ],
     composerTextarea: [
-      '.ql-editor[aria-label="Enter a prompt for Gemini"]',
-      'div.ql-editor.textarea[contenteditable="true"]',
-      'div[contenteditable="true"][aria-label*="Gemini"]',
-      'rich-textarea [contenteditable="true"]',
-      'div[contenteditable="true"][role="textbox"]',
+      '[data-testid="chat-input"]',
+      'div.ProseMirror[contenteditable="true"]',
+      '[aria-label="Write a prompt to Claude"][contenteditable="true"]',
+      '[aria-label="Message Claude"][contenteditable="true"]',
+      '[aria-label="Reply to Claude"][contenteditable="true"]',
+      'fieldset div[contenteditable="true"]',
     ],
   },
   identifyTab() {
-    const host = window.location.hostname;
-    return host === "gemini.google.com" || host.endsWith(".gemini.google.com");
+    const host = (window.location.hostname || "").toLowerCase();
+    return host === "claude.ai" || host.endsWith(".claude.ai");
   },
   isGenerating() {
     const stopBtn = SideraDom.queryFirst(this.selectors.stopButton, { visible: true });
@@ -96,8 +109,6 @@ const GeminiAdapter = {
       }
       if (nodes.length) break;
     }
-    // Walk from the newest message backwards; reading innerText forces layout,
-    // so touching every message in a long chat would freeze the page.
     for (let i = nodes.length - 1; i >= 0; i--) {
       const text = this._textOf(nodes[i]);
       if (text) return { element: nodes[i], text: text };
@@ -129,7 +140,7 @@ const GeminiAdapter = {
   },
   setComposerText(text) {
     const composer = SideraDom.queryFirst(this.selectors.composerTextarea, { visible: true });
-    if (!composer) throw new Error("Gemini composer not found.");
+    if (!composer) throw new Error("Claude composer not found.");
     SideraDom.setComposerText(composer, text);
   },
   submitComposer() {
@@ -147,4 +158,4 @@ const GeminiAdapter = {
   },
 };
 
-globalThis.GeminiAdapter = GeminiAdapter;
+globalThis.ClaudeAdapter = ClaudeAdapter;

@@ -34,7 +34,8 @@ class MediatorConfig:
     # many pastes into one chat; long single chats are where the sites degrade.
     rotate_after_pastes: int = 50
     genesis_enabled: bool = True
-    genesis_prompt_file: Path = INSTALL_ROOT / "mediator" / "genesis_protocol.md"
+    genesis_left_file: Path = INSTALL_ROOT / "mediator" / "genesis_left.txt"
+    genesis_right_file: Path = INSTALL_ROOT / "mediator" / "genesis_right.txt"
     log_level: str = "INFO"
     source_path: Optional[Path] = None
     raw: Dict[str, Any] = field(default_factory=dict)
@@ -83,7 +84,8 @@ def load_config(path: Optional[Path] = None) -> MediatorConfig:
     config.autonomous_submissions = _as_bool(mediator.get("autonomous_submissions"), config.autonomous_submissions)
     config.rotate_after_pastes = int(mediator.get("rotate_after_pastes", config.rotate_after_pastes))
     config.genesis_enabled = _as_bool(genesis.get("enabled"), config.genesis_enabled)
-    config.genesis_prompt_file = _resolve(base, genesis.get("prompt_file"), config.genesis_prompt_file)
+    config.genesis_left_file = _resolve(base, genesis.get("left_file"), config.genesis_left_file)
+    config.genesis_right_file = _resolve(base, genesis.get("right_file"), config.genesis_right_file)
     config.log_level = str(logging_section.get("level", config.log_level)).upper()
     config.source_path = candidate
     config.raw = raw

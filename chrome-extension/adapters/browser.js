@@ -1,56 +1,50 @@
 /**
- * Gemini (gemini.google.com) DOM adapter.
- * Measured on the signed-in Gemini app:
- * - Composer is div.ql-editor[aria-label="Enter a prompt for Gemini"].
- * - Submit is button[aria-label="Send message"].
- * - While a reply streams, that control becomes button[aria-label="Stop response"].
- * - The finished answer is message-content inside model-response.
+ * Generic adapter for any web page the operator already has open.
+ * Dedicated adapters are tried first. This one is the fallback: a visible
+ * textarea or contenteditable composer, a send/submit control, and an
+ * assistant turn marked with a role attribute or an article after that box.
+ * It does not name a product. A page with no chat box fails when pasting.
  */
-const GeminiAdapter = {
-  id: "gemini",
-  name: "Gemini",
+const BrowserAdapter = {
+  id: "browser",
+  name: "Browser",
   selectors: {
     userMessage: [
-      'user-query',
-      '.user-query-container',
+      '[data-message-author-role="user"]',
+      '[data-role="user"]',
     ],
     newChatControl: [
-      'a[aria-label="New chat"][href="/app"]',
       'a[aria-label="New chat"]',
       'button[aria-label="New chat"]',
     ],
     assistantMessage: [
-      "model-response message-content",
-      "model-response",
-      "message-content",
+      '[data-message-author-role="assistant"]',
+      '[data-role="assistant"]',
+      "article",
     ],
     messageContent: [
       ".markdown",
-      "message-content",
-      ".model-response-text",
+      ".prose",
+      '[class*="markdown"]',
     ],
     stopButton: [
-      'button[aria-label="Stop response"]',
-      'button[aria-label="Stop generating"]',
-      'button[aria-label="Stop"]',
-      'button[aria-label*="Stop"]',
+      'button[aria-label="Stop" i]',
+      'button[aria-label*="Stop" i]',
     ],
     sendButton: [
-      'button[aria-label="Send message"]',
-      'button[aria-label="Send"]',
-      'button[data-testid="send-button"]',
+      'button[aria-label*="Send" i]',
+      'button[aria-label*="Submit" i]',
+      'button[type="submit"]',
     ],
     composerTextarea: [
-      '.ql-editor[aria-label="Enter a prompt for Gemini"]',
-      'div.ql-editor.textarea[contenteditable="true"]',
-      'div[contenteditable="true"][aria-label*="Gemini"]',
-      'rich-textarea [contenteditable="true"]',
-      'div[contenteditable="true"][role="textbox"]',
+      "textarea",
+      '[contenteditable="true"][role="textbox"]',
+      'div[contenteditable="true"]',
     ],
   },
   identifyTab() {
-    const host = window.location.hostname;
-    return host === "gemini.google.com" || host.endsWith(".gemini.google.com");
+    const protocol = (window.location.protocol || "").toLowerCase();
+    return protocol === "https:" || protocol === "http:";
   },
   isGenerating() {
     const stopBtn = SideraDom.queryFirst(this.selectors.stopButton, { visible: true });
@@ -87,6 +81,7 @@ const GeminiAdapter = {
     return true;
   },
   getLatestAssistantMessage() {
+    if (!this._composer()) return null;
     let nodes = [];
     for (const sel of this.selectors.assistantMessage) {
       try {
@@ -96,13 +91,14 @@ const GeminiAdapter = {
       }
       if (nodes.length) break;
     }
-    // Walk from the newest message backwards; reading innerText forces layout,
-    // so touching every message in a long chat would freeze the page.
     for (let i = nodes.length - 1; i >= 0; i--) {
       const text = this._textOf(nodes[i]);
       if (text) return { element: nodes[i], text: text };
     }
     return null;
+  },
+  _composer() {
+    return SideraDom.queryFirst(this.selectors.composerTextarea, { visible: true });
   },
   _read(node) {
     const visible = (node.innerText || "").trim();
@@ -124,12 +120,12 @@ const GeminiAdapter = {
     return this._read(el);
   },
   isComposerReady() {
-    const composer = SideraDom.queryFirst(this.selectors.composerTextarea, { visible: true });
+    const composer = this._composer();
     return composer !== null && !composer.disabled && composer.getAttribute("aria-disabled") !== "true" && !this.isGenerating();
   },
   setComposerText(text) {
-    const composer = SideraDom.queryFirst(this.selectors.composerTextarea, { visible: true });
-    if (!composer) throw new Error("Gemini composer not found.");
+    const composer = this._composer();
+    if (!composer) throw new Error("This page has no chat box Sidera can paste into.");
     SideraDom.setComposerText(composer, text);
   },
   submitComposer() {
@@ -138,7 +134,7 @@ const GeminiAdapter = {
       SideraDom.clickControl(sendBtn);
       return true;
     }
-    const composer = SideraDom.queryFirst(this.selectors.composerTextarea, { visible: true });
+    const composer = this._composer();
     if (composer) {
       SideraDom.pressEnter(composer);
       return true;
@@ -147,4 +143,4 @@ const GeminiAdapter = {
   },
 };
 
-globalThis.GeminiAdapter = GeminiAdapter;
+globalThis.BrowserAdapter = BrowserAdapter;

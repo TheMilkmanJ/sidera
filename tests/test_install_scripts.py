@@ -30,9 +30,16 @@ class TestInstallScripts(unittest.TestCase):
         self.assertIn("launch_silent.vbs", ps1)
         self.assertIn("sidera.ico", ps1)
         self.assertIn("//B", ps1)
-        self.assertIn("chatgpt.com", vbs)
-        self.assertIn("grok.com", vbs)
         self.assertIn("--load-extension=", vbs)
+        # A fresh start must not navigate. The operator pairs tabs they already have.
+        run_line = next(line for line in vbs.splitlines() if "shell.Run" in line)
+        lowered = vbs.lower()
+        self.assertNotIn("http://", lowered)
+        self.assertNotIn("https://", lowered)
+        self.assertNotIn("chatgpt.com", lowered)
+        self.assertNotIn("grok.com", lowered)
+        self.assertNotIn("--new-window", run_line)
+        self.assertNotRegex(run_line, r"https?://")
         # Trusted key presses go through chrome.debugger; this flag hides the infobar.
         self.assertIn("--silent-debugger-extension-api", vbs)
         import json

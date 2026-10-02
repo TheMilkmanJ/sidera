@@ -7,8 +7,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const lastError = document.getElementById("lastError");
   const statusMessage = document.getElementById("statusMessage");
 
-  const btnPairLeft = document.getElementById("btnPairLeft");
-  const btnPairRight = document.getElementById("btnPairRight");
+  const sideLeft = document.getElementById("sideLeft");
+  const sideRight = document.getElementById("sideRight");
   const btnStart = document.getElementById("btnStart");
   const btnPause = document.getElementById("btnPause");
   const btnStop = document.getElementById("btnStop");
@@ -65,14 +65,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (data.maxTurns && !maxTurnsTouched) maxTurnsInput.value = data.maxTurns;
     if (data.signInMessage) statusMessage.innerText = data.signInMessage;
 
-    if (data.leftPaired) {
-      btnPairLeft.classList.add("paired");
-      btnPairLeft.innerText = "LEFT Paired ✓";
-    }
-    if (data.rightPaired) {
-      btnPairRight.classList.add("paired");
-      btnPairRight.innerText = "RIGHT Paired ✓";
-    }
+    paintSideSelect(sideLeft, "LEFT", data);
+    paintSideSelect(sideRight, "RIGHT", data);
 
     if (state === "PAUSED" || state === "ERROR") {
       btnPause.innerText = "Resume";
@@ -84,6 +78,38 @@ document.addEventListener("DOMContentLoaded", () => {
       btnPause.classList.remove("btn-start");
     }
   }
+
+  let suppressChoice = false;
+
+  function fillSideSelect(select) {
+    const current = select.value;
+    select.innerHTML = "";
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "Choose";
+    select.appendChild(blank);
+    const choices = globalThis.SideraSites ? SideraSites.sideChoices() : [];
+    for (const choice of choices) {
+      const option = document.createElement("option");
+      option.value = choice.id;
+      option.textContent = choice.label;
+      select.appendChild(option);
+    }
+    select.value = choices.some((choice) => choice.id === current) ? current : "";
+  }
+
+  function paintSideSelect(select, side, data) {
+    const slot = data.slots && data.slots[side];
+    const paired = !!(slot && slot.tabId);
+    const adapter = paired && globalThis.SideraSites && SideraSites.openUrlFor(slot.adapter) ? slot.adapter : "";
+    if (select.value === adapter) return;
+    suppressChoice = true;
+    select.value = adapter;
+    suppressChoice = false;
+  }
+
+  fillSideSelect(sideLeft);
+  fillSideSelect(sideRight);
 
   function showLoginForm() {
     const service = serviceName();
@@ -127,20 +153,27 @@ document.addEventListener("DOMContentLoaded", () => {
     if (msg.type === "POPUP_STATUS_UPDATE") updateUI(msg);
   });
 
-  btnPairLeft.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "PAIR_TAB", side: "LEFT" }, () => {
-      btnPairLeft.classList.add("paired");
-      btnPairLeft.innerText = "LEFT Paired ✓";
-      statusMessage.innerText = "Paired the active tab as LEFT (ChatGPT).";
+  function chooseSide(side, adapter) {
+    if (!adapter) return;
+    const label = SideraSites.labelFor(adapter) || adapter;
+    statusMessage.innerText = "Opening " + label + " for " + side + "...";
+    chrome.runtime.sendMessage({ type: "OPEN_AND_PAIR", side: side, adapter: adapter }, (resp) => {
+      const runtimeMessage = chrome.runtime.lastError && chrome.runtime.lastError.message;
+      if (runtimeMessage || !resp || resp.success === false) {
+        statusMessage.innerText = (resp && resp.error) || runtimeMessage || "Could not open that page.";
+        return;
+      }
+      statusMessage.innerText = side + " is " + (resp.label || label) + ".";
     });
-  });
+  }
 
-  btnPairRight.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "PAIR_TAB", side: "RIGHT" }, () => {
-      btnPairRight.classList.add("paired");
-      btnPairRight.innerText = "RIGHT Paired ✓";
-      statusMessage.innerText = "Paired the active tab as RIGHT (Grok or Gemini).";
-    });
+  sideLeft.addEventListener("change", () => {
+    if (suppressChoice) return;
+    chooseSide("LEFT", sideLeft.value);
+  });
+  sideRight.addEventListener("change", () => {
+    if (suppressChoice) return;
+    chooseSide("RIGHT", sideRight.value);
   });
 
   btnStart.addEventListener("click", () => {
@@ -149,7 +182,7 @@ document.addEventListener("DOMContentLoaded", () => {
         statusMessage.innerText = resp.error || "Could not start.";
       }
     });
-    statusMessage.innerText = "Checking ChatGPT and Grok, then teaching the protocol.";
+    statusMessage.innerText = "Checking sign-in, then teaching each side its role.";
   });
 
   btnPause.addEventListener("click", () => {

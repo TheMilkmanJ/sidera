@@ -33,9 +33,40 @@ control tags may be written on one line without a closing tag.
 | `READY` | – | Acknowledgement to the Genesis Protocol; never forwarded, never counted as a turn. | – |
 
 Aliases accepted for convenience: `[[MEMORY:category]] … [[/MEMORY]]` (legacy memory
-write, project `default`), `SAVE` (memory, or file when `path=` is given), `RECALL`,
-`READ`, `WRITE`, `LIST`, `REMEMBER`, `APPEND`. The `SIDERA:`-prefixed names above are
-canonical.
+write, project `default`), `SAVE` (memory, or file append when `path=` is given on a
+`SIDERA:` tag), `RECALL`, `READ`, `WRITE`, `LIST`, `REMEMBER`, `APPEND`. The
+`SIDERA:`-prefixed names above are canonical.
+
+The hemisphere role files use a shorter form. These are executed the same way:
+
+```text
+[[MEMORY:category]]
+text to remember
+[[/MEMORY]]
+
+[[RECALL:category]]
+optional search words
+[[/RECALL]]
+
+[[READ:relative/path]][[/READ]]
+
+[[SAVE:relative/path]]
+whole file content (creates or replaces)
+[[/SAVE]]
+
+[[READY:LEFT]]
+acknowledgement
+[[/READY]]
+
+[[READY:RIGHT]]
+acknowledgement
+[[/READY]]
+```
+
+`[[SAVE:path]]` from a role file writes the file (creates or replaces). A
+`[[SIDERA: SAVE path="…"]]` tag still appends. A reply that is only a
+`[[READY:LEFT]]` or `[[READY:RIGHT]]` block is that side's handshake
+acknowledgement. The other side's block does not count as this side's acknowledgement.
 
 ## Rules
 
@@ -48,8 +79,10 @@ canonical.
 - Every executed operation is recorded in the ledger (`tag_operations`) under the
   message that requested it. If the same message is processed again after a crash
   the operations are not repeated.
-- A reply consisting only of `READY` (word or tag) is an acknowledgement and is
-  dropped without being forwarded.
+- A reply consisting only of `READY` (word, tag, or a `[[READY:LEFT]]` /
+  `[[READY:RIGHT]]` block) is an acknowledgement and is dropped without being
+  forwarded. During the handshake, the block has to name the side that was just
+  taught.
 
 ## Example exchange
 

@@ -13,6 +13,7 @@
  *   (aria-label "Stop generating", "Stop streaming", or "Stop response").
  */
 const ChatGPTAdapter = {
+  id: "chatgpt",
   name: "ChatGPT",
   selectors: {
     userMessage: [

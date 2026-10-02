@@ -240,7 +240,8 @@ class ConfigLoading(unittest.TestCase):
         self.assertEqual(config.data_root, (root / "data").resolve())
         self.assertEqual(config.max_autonomous_turns, 50)
         self.assertTrue(config.genesis_enabled)
-        self.assertEqual(config.genesis_prompt_file, (root / "mediator" / "genesis_protocol.md").resolve())
+        self.assertEqual(config.genesis_left_file, (root / "mediator" / "genesis_left.txt").resolve())
+        self.assertEqual(config.genesis_right_file, (root / "mediator" / "genesis_right.txt").resolve())
         self.assertEqual(config.log_level, "INFO")
 
     def test_custom_values(self):

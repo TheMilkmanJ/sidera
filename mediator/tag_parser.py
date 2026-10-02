@@ -23,6 +23,25 @@ LEGACY_MEMORY_REGEX = re.compile(
     re.IGNORECASE,
 )
 
+# Forms taught by the hemisphere role files. They name a category or a path
+# in the opening tag, not as SIDERA attributes.
+RECALL_REGEX = re.compile(
+    r"\[\[RECALL:([A-Za-z0-9_-]+)\]\]([\s\S]*?)\[\[/RECALL\]\]",
+    re.IGNORECASE,
+)
+READ_REGEX = re.compile(
+    r"\[\[READ:([^\]]+)\]\]\s*\[\[/READ\]\]",
+    re.IGNORECASE,
+)
+SAVE_REGEX = re.compile(
+    r"\[\[SAVE:([^\]]+)\]\]([\s\S]*?)\[\[/SAVE\]\]",
+    re.IGNORECASE,
+)
+READY_BLOCK_REGEX = re.compile(
+    r"\[\[READY:(LEFT|RIGHT)\]\]([\s\S]*?)\[\[/READY\]\]",
+    re.IGNORECASE,
+)
+
 BLOCK_OPERATIONS = ("MEMORY_WRITE", "MEMORY_READ", "FILE_APPEND", "FILE_READ", "FILE_WRITE", "FILE_LIST")
 SINGLE_OPERATIONS = ("STOP", "PAUSE", "STATUS", "READY")
 
@@ -40,8 +59,21 @@ ALIASES = {
 READY_WORD_REGEX = re.compile(r"^\W*ready\W*$", re.IGNORECASE)
 
 
+def ready_role(text: str) -> str:
+    """LEFT or RIGHT when a reply carries that hemisphere's ready block, else ""."""
+    match = READY_BLOCK_REGEX.search(text or "")
+    if not match:
+        return ""
+    outside = READY_BLOCK_REGEX.sub("", text or "").strip()
+    if outside:
+        return ""
+    return match.group(1).upper()
+
+
 def is_ready_acknowledgement(text: str) -> bool:
-    """True when a reply is nothing but READY (word or tag): a protocol ack, not a turn."""
+    """True when a reply is nothing but READY (word, tag, or a role block): a protocol ack, not a turn."""
+    if ready_role(text):
+        return True
     stripped = TAG_SINGLE_REGEX.sub(
         lambda m: " READY " if m.group(1).upper() == "READY" else m.group(0), text or ""
     )
@@ -130,6 +162,43 @@ class TagParser:
             })
 
         clean_text = LEGACY_MEMORY_REGEX.sub("", clean_text)
+
+        for match in RECALL_REGEX.finditer(clean_text):
+            operations.append({
+                "type": "MEMORY_READ",
+                "raw_match": match.group(0),
+                "attributes": {"category": match.group(1).lower(), "project": "default"},
+                "body": match.group(2).strip(),
+            })
+        clean_text = RECALL_REGEX.sub("", clean_text)
+
+        for match in READ_REGEX.finditer(clean_text):
+            operations.append({
+                "type": "FILE_READ",
+                "raw_match": match.group(0),
+                "attributes": {"path": match.group(1).strip()},
+                "body": "",
+            })
+        clean_text = READ_REGEX.sub("", clean_text)
+
+        for match in SAVE_REGEX.finditer(clean_text):
+            operations.append({
+                "type": "FILE_WRITE",
+                "raw_match": match.group(0),
+                "attributes": {"path": match.group(1).strip()},
+                "body": match.group(2).strip(),
+            })
+        clean_text = SAVE_REGEX.sub("", clean_text)
+
+        for match in READY_BLOCK_REGEX.finditer(clean_text):
+            operations.append({
+                "type": "READY",
+                "raw_match": match.group(0),
+                "attributes": {"hemisphere": match.group(1).upper()},
+                "body": match.group(2).strip(),
+            })
+        clean_text = READY_BLOCK_REGEX.sub("", clean_text)
+
         clean_text = re.sub(r"\n{3,}", "\n\n", clean_text).strip()
         return clean_text, operations, errors
 

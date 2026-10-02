@@ -24,9 +24,9 @@ class MediatorState(enum.Enum):
     ERROR = "ERROR"
 
 class ParticipantSlot:
-    def __init__(self, slot_id: str, adapter_type: str = "chatgpt", tab_id: Optional[int] = None):
+    def __init__(self, slot_id: str, adapter_type: str = "", tab_id: Optional[int] = None):
         self.slot_id = slot_id.upper()
-        self.adapter_type = adapter_type.lower()
+        self.adapter_type = (adapter_type or "").lower()
         self.tab_id = tab_id
         self.is_active = True
 
@@ -53,9 +53,10 @@ class StateMachine:
         self.last_error: Optional[str] = None
         self.on_state_change = on_state_change
 
+        # A side has no site until the operator selects one.
         self.slots: Dict[str, ParticipantSlot] = {
-            "LEFT": ParticipantSlot("LEFT", "chatgpt"),
-            "RIGHT": ParticipantSlot("RIGHT", "grok"),
+            "LEFT": ParticipantSlot("LEFT"),
+            "RIGHT": ParticipantSlot("RIGHT"),
         }
         self.slot_sequence = [s.upper() for s in (slot_sequence or ["LEFT", "RIGHT"])]
 
