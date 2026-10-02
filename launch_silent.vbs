@@ -1,10 +1,11 @@
 Option Explicit
 ' Windowless launcher. wscript.exe //B shows no console.
-' Opens ChatGPT and Grok in the default browser when that browser can
-' load the Sidera extension (Chrome, Edge, Brave, Vivaldi, Opera, or Chromium),
-' with the extension already loaded. Firefox and other non-Chromium defaults
-' cannot host the extension; a supported browser already on the machine is
-' opened instead, and a short notice says which one.
+' Starts the default browser with the Sidera extension loaded when that
+' browser can host it (Chrome, Edge, Brave, Vivaldi, Opera, or Chromium).
+' It does not open a page. The operator pairs tabs they already have.
+' Firefox and other non-Chromium defaults cannot host the extension; a
+' supported browser already on the machine is opened instead, and a short
+' notice says which one.
 Dim shell, fso, installRoot, extensionDir, manifestPath
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -41,7 +42,7 @@ Else
 End If
 
 RegisterHost chosenHive, manifestPath
-shell.Run """" & chosenExe & """ --load-extension=""" & extensionDir & """ --silent-debugger-extension-api --new-window https://chatgpt.com/ https://grok.com/", 1, False
+shell.Run """" & chosenExe & """ --load-extension=""" & extensionDir & """ --silent-debugger-extension-api", 1, False
 
 Function RegRead(path)
   On Error Resume Next
