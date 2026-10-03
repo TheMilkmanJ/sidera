@@ -51,6 +51,33 @@ class TestStateMachine(unittest.TestCase):
         self.sm.stop()
         self.assertEqual(self.sm.state, MediatorState.IDLE)
 
+    def test_same_adapter_on_both_slots_routes_by_slot(self):
+        # ChatGPT vs ChatGPT in two separate tabs: each slot keeps its own
+        # tab id and the turn sequence still alternates LEFT <-> RIGHT.
+        self.sm.register_slot("LEFT", "chatgpt", tab_id=11)
+        self.sm.register_slot("RIGHT", "chatgpt", tab_id=22)
+        self.assertEqual(self.sm.slots["LEFT"].adapter_type, "chatgpt")
+        self.assertEqual(self.sm.slots["RIGHT"].adapter_type, "chatgpt")
+        self.assertEqual(self.sm.slots["LEFT"].tab_id, 11)
+        self.assertEqual(self.sm.slots["RIGHT"].tab_id, 22)
+        self.assertEqual(self.sm.slot_sequence, ["LEFT", "RIGHT"])
+        self.assertEqual(self.sm.get_next_slot("LEFT"), "RIGHT")
+        self.assertEqual(self.sm.get_next_slot("RIGHT"), "LEFT")
+        self.sm.start("LEFT")
+        self.sm.handle_response_captured("LEFT", "SIDERA-0000001")
+        self.sm.start_processing()
+        self.sm.prepare_send("RIGHT")
+        self.sm.confirm_submission("RIGHT")
+        self.assertEqual(self.sm.state, MediatorState.WAIT_RIGHT)
+
+    def test_any_adapter_on_either_slot(self):
+        # The sides are not tied to a site: Grok can be LEFT, Gemini RIGHT.
+        self.sm.register_slot("LEFT", "grok", tab_id=5)
+        self.sm.register_slot("RIGHT", "gemini", tab_id=6)
+        self.assertEqual(self.sm.slots["LEFT"].adapter_type, "grok")
+        self.assertEqual(self.sm.slots["RIGHT"].adapter_type, "gemini")
+        self.assertEqual(self.sm.slot_sequence, ["LEFT", "RIGHT"])
+
     def test_dynamic_slot_registration_and_routing(self):
         self.sm.register_slot("BOT3", "claude")
         self.assertEqual(len(self.sm.slot_sequence), 3)

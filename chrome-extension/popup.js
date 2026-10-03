@@ -9,6 +9,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const btnPairLeft = document.getElementById("btnPairLeft");
   const btnPairRight = document.getElementById("btnPairRight");
+  const pairControls = {
+    LEFT: { site: document.getElementById("siteLeft"), tab: document.getElementById("tabLeft"), button: btnPairLeft },
+    RIGHT: { site: document.getElementById("siteRight"), tab: document.getElementById("tabRight"), button: btnPairRight },
+  };
+  // Once the operator touches a side's site picker, status updates stop
+  // overwriting it with the currently paired adapter.
+  const siteTouched = { LEFT: false, RIGHT: false };
+  let pairedTabs = { LEFT: null, RIGHT: null };
   const btnStart = document.getElementById("btnStart");
   const btnPause = document.getElementById("btnPause");
   const btnStop = document.getElementById("btnStop");
@@ -35,6 +43,43 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   let maxTurnsTouched = false;
+
+  // List the open tabs that belong to the side's chosen site, so the operator
+  // can say which tab is LEFT and which is RIGHT even when both sides use the
+  // same site. The paired tab, else the active one, is preselected.
+  function refreshTabChoices(side) {
+    const controls = pairControls[side];
+    const adapterType = controls.site.value;
+    const label = SideraSites.adapterLabel(adapterType);
+    chrome.tabs.query({}, (tabs) => {
+      const matching = (tabs || []).filter((tab) => SideraSites.siteForUrl(tab.url) === adapterType);
+      const previous = controls.tab.value;
+      controls.tab.innerHTML = "";
+      if (matching.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.innerText = `No ${label} tab open`;
+        controls.tab.appendChild(option);
+        return;
+      }
+      for (const tab of matching) {
+        const option = document.createElement("option");
+        option.value = String(tab.id);
+        const title = (tab.title || tab.url || "").slice(0, 42);
+        option.innerText = `Tab ${tab.index + 1}: ${title}${tab.active ? " (active)" : ""}`;
+        controls.tab.appendChild(option);
+      }
+      const prefer = [previous, String(pairedTabs[side] ?? "")];
+      const active = matching.find((tab) => tab.active);
+      if (active) prefer.push(String(active.id));
+      for (const value of prefer) {
+        if (value && matching.some((tab) => String(tab.id) === value)) {
+          controls.tab.value = value;
+          break;
+        }
+      }
+    });
+  }
 
   function updateUI(data) {
     if (!data) return;
@@ -65,13 +110,19 @@ document.addEventListener("DOMContentLoaded", () => {
     if (data.maxTurns && !maxTurnsTouched) maxTurnsInput.value = data.maxTurns;
     if (data.signInMessage) statusMessage.innerText = data.signInMessage;
 
-    if (data.leftPaired) {
-      btnPairLeft.classList.add("paired");
-      btnPairLeft.innerText = "LEFT Paired ✓";
-    }
-    if (data.rightPaired) {
-      btnPairRight.classList.add("paired");
-      btnPairRight.innerText = "RIGHT Paired ✓";
+    for (const side of ["LEFT", "RIGHT"]) {
+      const controls = pairControls[side];
+      const slot = data.slots && data.slots[side];
+      const paired = side === "LEFT" ? data.leftPaired : data.rightPaired;
+      pairedTabs[side] = slot && slot.tabId != null ? slot.tabId : null;
+      if (slot && slot.adapter && !siteTouched[side] && controls.site.value !== slot.adapter) {
+        controls.site.value = slot.adapter;
+        refreshTabChoices(side);
+      }
+      if (paired) {
+        controls.button.classList.add("paired");
+        controls.button.innerText = `${side} Paired ✓`;
+      }
     }
 
     if (state === "PAUSED" || state === "ERROR") {
@@ -127,21 +178,38 @@ document.addEventListener("DOMContentLoaded", () => {
     if (msg.type === "POPUP_STATUS_UPDATE") updateUI(msg);
   });
 
-  btnPairLeft.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "PAIR_TAB", side: "LEFT" }, () => {
-      btnPairLeft.classList.add("paired");
-      btnPairLeft.innerText = "LEFT Paired ✓";
-      statusMessage.innerText = "Paired the active tab as LEFT (ChatGPT).";
+  function pairSide(side) {
+    const controls = pairControls[side];
+    const adapterType = controls.site.value;
+    const label = SideraSites.adapterLabel(adapterType);
+    const tabId = parseInt(controls.tab.value, 10);
+    if (!Number.isFinite(tabId)) {
+      statusMessage.innerText = `Open a ${label} tab first, then pair it as ${side}.`;
+      return;
+    }
+    const tabName = controls.tab.selectedOptions[0] ? controls.tab.selectedOptions[0].innerText : "the tab";
+    chrome.runtime.sendMessage({ type: "PAIR_TAB", side: side, adapterType: adapterType, tabId: tabId }, (resp) => {
+      if (!resp || resp.success === false) {
+        statusMessage.innerText = (resp && resp.error) || `Could not pair ${side}.`;
+        return;
+      }
+      controls.button.classList.add("paired");
+      controls.button.innerText = `${side} Paired ✓`;
+      statusMessage.innerText = `Paired ${tabName} as ${side} (${label}).`;
     });
-  });
+  }
 
-  btnPairRight.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ type: "PAIR_TAB", side: "RIGHT" }, () => {
-      btnPairRight.classList.add("paired");
-      btnPairRight.innerText = "RIGHT Paired ✓";
-      statusMessage.innerText = "Paired the active tab as RIGHT (Grok or Gemini).";
+  btnPairLeft.addEventListener("click", () => pairSide("LEFT"));
+  btnPairRight.addEventListener("click", () => pairSide("RIGHT"));
+
+  for (const side of ["LEFT", "RIGHT"]) {
+    pairControls[side].site.addEventListener("change", () => {
+      siteTouched[side] = true;
+      refreshTabChoices(side);
     });
-  });
+  }
+  refreshTabChoices("LEFT");
+  refreshTabChoices("RIGHT");
 
   btnStart.addEventListener("click", () => {
     chrome.runtime.sendMessage({ type: "START", initial_hemisphere: "LEFT" }, (resp) => {
@@ -149,7 +217,7 @@ document.addEventListener("DOMContentLoaded", () => {
         statusMessage.innerText = resp.error || "Could not start.";
       }
     });
-    statusMessage.innerText = "Checking ChatGPT and Grok, then teaching the protocol.";
+    statusMessage.innerText = "Checking both sign-ins, then teaching the protocol.";
   });
 
   btnPause.addEventListener("click", () => {

@@ -16,7 +16,10 @@ class TestInstallScripts(unittest.TestCase):
     def test_native_host_registry_points_at_manifest(self):
         ps1 = (ROOT / "setup_prerequisites.ps1").read_text(encoding="utf-8")
         manifest = (ROOT / "com.sidera.mediator.json").read_text(encoding="utf-8")
-        self.assertIn("HKCU:\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.sidera.mediator", ps1)
+        # The installer loops over $nativeHives; Chrome must be in the list and
+        # every hive must gain the com.sidera.mediator key under HKCU.
+        self.assertIn('"Software\\Google\\Chrome"', ps1)
+        self.assertIn("HKCU:\\$hive\\NativeMessagingHosts\\com.sidera.mediator", ps1)
         self.assertIn("com.sidera.mediator.json", ps1)
         self.assertIn("com.sidera.mediator", manifest)
         self.assertIn("chrome-extension://pekgjaanmdkkpclhlobpcggibbkgjbgd/", manifest)
