@@ -23,8 +23,8 @@ account's allowance twice as fast.
 1. **A Chrome extension (Manifest V3).** Its popup is where you pick, for each
    side, the AI and the exact browser tab that holds it (so two tabs of the
    same site can be told apart — the picker shows each tab's window and chat
-   title, numbers same-site tabs that share one window ("Tab 1: ChatGPT",
-   "Tab 2: ChatGPT"), and suggests an unused tab; an "Open in a new window"
+   title, numbers a site's tabs when more than one is open ("ChatGPT 1",
+   "ChatGPT 2"), and suggests an unused tab; an "Open in a new window"
    button opens the chosen AI in a new window of its own). The AI you pick
    for each side is remembered as soon as you pick it. Then Start, Pause,
    Resume, Emergency STOP, and Manual forward in both directions. The popup

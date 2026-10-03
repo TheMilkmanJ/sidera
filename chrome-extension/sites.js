@@ -133,27 +133,22 @@ const SideraSites = {
     return (active || pool[0]).id;
   },
 
-  // Readable label for a tab in the picker: the window (when there is more
-  // than one), a tab number (when one window holds several tabs of the same
-  // site, which often all read just "ChatGPT"), plus the chat title, so two
-  // same-site tabs can always be told apart.
-  // Number the same-site tabs within each window (1, 2, ...) in tab order,
-  // but only in windows that hold more than one of them. Returns a Map from
-  // tab id to its number; tabs alone in their window get no number.
+  // Number a site's open tabs 1, 2, ... (in window order, then tab order)
+  // when more than one tab of that site is open, so the picker can say
+  // "ChatGPT 1" and "ChatGPT 2" even when both tabs are titled "ChatGPT".
+  // Pass only the tabs of ONE site. Returns a Map from tab id to its number;
+  // a site with a single open tab gets no numbers.
   tabNumbers(tabs) {
-    const byWindow = new Map();
-    for (const tab of tabs || []) {
-      if (!byWindow.has(tab.windowId)) byWindow.set(tab.windowId, []);
-      byWindow.get(tab.windowId).push(tab);
-    }
+    const list = (tabs || []).slice();
     const numbers = new Map();
-    for (const group of byWindow.values()) {
-      if (group.length < 2) continue;
-      group
-        .slice()
-        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
-        .forEach((tab, i) => numbers.set(tab.id, i + 1));
+    if (list.length < 2) return numbers;
+    const windowOrder = new Map();
+    for (const tab of list) {
+      if (!windowOrder.has(tab.windowId)) windowOrder.set(tab.windowId, windowOrder.size);
     }
+    list
+      .sort((a, b) => (windowOrder.get(a.windowId) - windowOrder.get(b.windowId)) || ((a.index ?? 0) - (b.index ?? 0)))
+      .forEach((tab, i) => numbers.set(tab.id, i + 1));
     return numbers;
   },
 
@@ -163,13 +158,18 @@ const SideraSites = {
     return (tab && (tab.url || tab.pendingUrl)) || "";
   },
 
-  describeTab(tab, { windowNumber = 1, multiWindow = false, tabNumber = null, pairedAs = null } = {}) {
+  // Readable label for a tab in the picker: "ChatGPT 2: <title>" when the
+  // site has more than one open tab (with the window when there is more than
+  // one), else the window (if several) and the chat title, so two same-site
+  // tabs can always be told apart.
+  describeTab(tab, { windowNumber = 1, multiWindow = false, tabNumber = null, siteLabel = "", pairedAs = null } = {}) {
     let title = String(tab.title || tab.url || "").trim();
     if (title.length > 40) title = title.slice(0, 39).trimEnd() + "…";
     const parts = [];
-    if (multiWindow && tabNumber != null) parts.push(`Window ${windowNumber}, tab ${tabNumber}: `);
+    const name = siteLabel || "Tab";
+    if (tabNumber != null && multiWindow) parts.push(`${name} ${tabNumber} (window ${windowNumber}): `);
+    else if (tabNumber != null) parts.push(`${name} ${tabNumber}: `);
     else if (multiWindow) parts.push(`Window ${windowNumber}: `);
-    else if (tabNumber != null) parts.push(`Tab ${tabNumber}: `);
     parts.push(title || "(untitled tab)");
     if (pairedAs) parts.push(` — paired as ${pairedAs}`);
     return parts.join("");

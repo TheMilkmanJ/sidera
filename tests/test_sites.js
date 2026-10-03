@@ -103,25 +103,34 @@ assert.equal(Sites.describeTab({ id: 1, title: "Gyrocell brainstorming" }, { win
 assert.equal(Sites.describeTab({ id: 1, title: "ChatGPT" }, { windowNumber: 1, multiWindow: false }), "ChatGPT");
 assert.equal(Sites.describeTab({ id: 1, title: "ChatGPT" }, { windowNumber: 1, multiWindow: false, pairedAs: "LEFT" }), "ChatGPT — paired as LEFT");
 assert.equal(Sites.describeTab({ id: 1, title: "" }, {}), "(untitled tab)");
-// Two same-site tabs in ONE window often share the title "ChatGPT": they get
-// a number so they can be told apart.
-const sameWindow = [
+// Same-site tabs often share the title "ChatGPT": when a site has more than
+// one open tab, each is numbered by site ("ChatGPT 1", "ChatGPT 2"), across
+// windows, in window order and then tab order.
+const sameSite = [
   { id: 5, windowId: 1, index: 3, title: "ChatGPT" },
   { id: 4, windowId: 1, index: 1, title: "ChatGPT" },
-  { id: 9, windowId: 2, index: 0, title: "ChatGPT" },
+  { id: 9, windowId: 2, index: 0, title: "Gyrocell notes" },
 ];
-const numbers = Sites.tabNumbers(sameWindow);
+const numbers = Sites.tabNumbers(sameSite);
 assert.equal(numbers.get(4), 1);
 assert.equal(numbers.get(5), 2);
-assert.equal(numbers.has(9), false, "a tab alone in its window needs no number");
-assert.equal(Sites.describeTab(sameWindow[1], { tabNumber: numbers.get(4) }), "Tab 1: ChatGPT");
-assert.equal(Sites.describeTab(sameWindow[0], { tabNumber: numbers.get(5) }), "Tab 2: ChatGPT");
+assert.equal(numbers.get(9), 3, "a tab in another window continues the count");
+assert.equal(Sites.tabNumbers([{ id: 1, windowId: 1, index: 0 }]).size, 0, "a lone tab needs no number");
+assert.equal(Sites.describeTab(sameSite[1], { tabNumber: 1, siteLabel: "ChatGPT" }), "ChatGPT 1: ChatGPT");
+assert.equal(Sites.describeTab(sameSite[0], { tabNumber: 2, siteLabel: "ChatGPT" }), "ChatGPT 2: ChatGPT");
 assert.notEqual(
-  Sites.describeTab(sameWindow[0], { tabNumber: 2 }),
-  Sites.describeTab(sameWindow[1], { tabNumber: 1 }),
+  Sites.describeTab(sameSite[0], { tabNumber: 2, siteLabel: "ChatGPT" }),
+  Sites.describeTab(sameSite[1], { tabNumber: 1, siteLabel: "ChatGPT" }),
   "same-title tabs never read the same",
 );
-assert.equal(Sites.describeTab(sameWindow[0], { windowNumber: 1, multiWindow: true, tabNumber: 2 }), "Window 1, tab 2: ChatGPT");
+assert.equal(
+  Sites.describeTab(sameSite[2], { windowNumber: 2, multiWindow: true, tabNumber: 3, siteLabel: "ChatGPT" }),
+  "ChatGPT 3 (window 2): Gyrocell notes",
+);
+assert.equal(
+  Sites.describeTab(sameSite[1], { tabNumber: 1, siteLabel: "ChatGPT", pairedAs: "LEFT" }),
+  "ChatGPT 1: ChatGPT — paired as LEFT",
+);
 // A freshly opened tab only has pendingUrl until it commits.
 assert.equal(Sites.siteForUrl(Sites.tabUrl({ url: "", pendingUrl: "https://chatgpt.com/" })), "chatgpt");
 assert.equal(Sites.tabUrl({ url: "https://grok.com/", pendingUrl: "https://chatgpt.com/" }), "https://grok.com/");
@@ -216,9 +225,10 @@ assert.ok(long.length <= 41 && long.endsWith("…"), long);
   assert.equal(document.getElementById("stateBadge").innerText, "Not running");
   assert.match(document.getElementById("ipcStatus").innerText, /^Not running/);
   assert.match(document.getElementById("modeStatus").innerText, /^On — Sidera pastes/);
+  assert.ok(!/config\.toml/.test(fs.readFileSync(path.join(__dirname, "../chrome-extension/popup.js"), "utf8")), "no config file names in the popup");
 
   const labels = document.getElementById("tabLeft").children.map((o) => o.innerText);
-  assert.deepEqual(labels, ["Tab 1: ChatGPT", "Tab 2: ChatGPT"], "two same-window ChatGPT tabs read differently");
+  assert.deepEqual(labels, ["ChatGPT 1: ChatGPT", "ChatGPT 2: ChatGPT"], "two same-site ChatGPT tabs read differently");
   assert.notEqual(document.getElementById("tabLeft").value, document.getElementById("tabRight").value, "the two pickers start on different tabs");
 
   // Picking an AI is saved at once, before Pair.

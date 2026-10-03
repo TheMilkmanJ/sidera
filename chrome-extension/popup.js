@@ -82,6 +82,7 @@ document.addEventListener("DOMContentLoaded", () => {
           windowNumber: windowNumbers.get(tab.windowId),
           multiWindow: multiWindow,
           tabNumber: tabNumbers.has(tab.id) ? tabNumbers.get(tab.id) : null,
+          siteLabel: label,
           pairedAs: pairedAs,
         });
         controls.tab.appendChild(option);
@@ -118,7 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     lastMsgId.innerText = data.lastMessageId || "-";
     ipcStatus.innerText = data.connected ? "Running" : "Not running — open Sidera from its icon";
     modeStatus.innerText = data.autonomousSubmissions === false
-      ? "Off — Sidera only watches (set in config.toml)"
+      ? "Off — Sidera only watches"
       : "On — Sidera pastes each reply into the other side";
 
     if (data.lastError) {
