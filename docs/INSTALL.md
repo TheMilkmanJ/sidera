@@ -69,8 +69,9 @@ C:\Sidera\chrome-extension
 
 In the folder window, click in the address bar at the top (the bar that shows
 the current folder path), type or paste `C:\Sidera\chrome-extension`, and
-press Enter. The window now shows the inside of that folder: files such as
-`manifest.json` and `background.js`, and an `adapters` folder.
+press Enter. The window now shows the inside of that folder. Because Chrome's
+folder picker lists only folders, you will see just an `adapters` folder there
+and no files. That is normal: you are in the right place.
 
 > **[screenshot pending (Windows)]** No picture of the folder window with
 > `C:\Sidera\chrome-extension` open yet.
