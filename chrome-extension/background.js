@@ -1,3 +1,5 @@
+importScripts("sites.js");
+
 const NATIVE_HOST_NAME = "com.sidera.mediator";
 
 let nativePort = null;
@@ -428,11 +430,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendToMediator({ type: reqType });
   } else if (reqType === "PAIR_TAB" || reqType === "HOOK_TAB") {
     const slotId = (request.side || request.slotId || "LEFT").toUpperCase();
-    const adapterType = request.adapterType || (slotId === "LEFT" ? "chatgpt" : "grok");
+    const adapterType = SideraSites.normalizeAdapter(request.adapterType, slotId);
 
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (!tabs || tabs.length === 0) return;
-      const tab = tabs[0];
+    const pairTab = (tab) => {
+      if (!tab || tab.id == null) {
+        sendResponse({ success: false, error: "That tab is no longer open." });
+        return;
+      }
+      // Same site on both sides is fine; the same tab on both sides is not.
+      const conflict = SideraSites.pairingConflict(slotRegistry, slotId, tab.id);
+      if (conflict) {
+        sendResponse({ success: false, error: conflict });
+        return;
+      }
       slotRegistry[slotId] = { adapter: adapterType, tabId: tab.id };
       persistSession();
       assignTab(tab.id, slotId, adapterType, (resp) => {
@@ -443,9 +453,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           tab_id: tab.id,
         });
         broadcastStatus();
-        sendResponse({ success: true, slotId: slotId, tabId: tab.id });
+        sendResponse({ success: true, slotId: slotId, adapterType: adapterType, tabId: tab.id });
       });
-    });
+    };
+
+    if (typeof request.tabId === "number") {
+      chrome.tabs.get(request.tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) {
+          sendResponse({ success: false, error: "That tab is no longer open." });
+          return;
+        }
+        pairTab(tab);
+      });
+    } else {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (!tabs || tabs.length === 0) {
+          sendResponse({ success: false, error: "No active tab to pair." });
+          return;
+        }
+        pairTab(tabs[0]);
+      });
+    }
     return true;
   } else if (reqType === "SAVE_ACCOUNT_LOGIN" || reqType === "FORGET_ACCOUNT_LOGIN" || reqType === "GET_ACCOUNT_LOGIN_STATUS") {
     loginStatusWaiters.push(sendResponse);
@@ -466,14 +494,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const left = slotRegistry.LEFT;
     if (!left || !left.tabId) {
       signInMessage = null;
-      lastError = "Pair the ChatGPT tab as LEFT before starting.";
+      lastError = "Pair a tab as LEFT before starting.";
       broadcastStatus();
       sendResponse({ ok: false, error: lastError });
       return true;
     }
-    signInMessage = "Checking the ChatGPT sign-in...";
     lastError = null;
-    broadcastStatus();
     const beginExchange = () => {
       signInMessage = null;
       lastError = null;
@@ -487,23 +513,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       broadcastStatus();
       sendResponse(result);
     };
-    ensureSiteLogin(left.tabId, "chatgpt", (chatResult) => {
-      if (!chatResult.ok) {
-        fail(chatResult);
-        return;
-      }
-      const right = slotRegistry.RIGHT;
-      if (!right || !right.tabId || right.adapter === "gemini") {
+    // Check each paired side's own site sign-in, LEFT first. A site with no
+    // scripted login flow (Gemini) is skipped, as before.
+    const checks = [];
+    for (const slotId of ["LEFT", "RIGHT"]) {
+      const slot = slotRegistry[slotId];
+      if (!slot || !slot.tabId) continue;
+      const service = SideraSites.loginServiceFor(slot.adapter);
+      if (!service) continue;
+      checks.push({ tabId: slot.tabId, service: service, label: SideraSites.adapterLabel(slot.adapter) });
+    }
+    const runCheck = (index) => {
+      if (index >= checks.length) {
         beginExchange();
         return;
       }
-      signInMessage = "Checking the Grok sign-in...";
+      const check = checks[index];
+      signInMessage = `Checking the ${check.label} sign-in...`;
       broadcastStatus();
-      ensureSiteLogin(right.tabId, "grok", (grokResult) => {
-        if (!grokResult.ok) fail(grokResult);
-        else beginExchange();
+      ensureSiteLogin(check.tabId, check.service, (result) => {
+        if (!result.ok) fail(result);
+        else runCheck(index + 1);
       });
-    });
+    };
+    runCheck(0);
     return true;
   } else if (reqType === "PAUSE") {
     sendToMediator({ type: "PAUSE", reason: "User paused from extension popup" });

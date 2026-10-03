@@ -1,8 +1,8 @@
 # Sidera Dual-Hemisphere Mediator
 
-Local turn-taking mediator between a ChatGPT tab (LEFT) and a Grok tab (RIGHT), built to the Sidera Phase 1 build specification. It uses the signed-in sessions in your default browser. There is no paid API and no localhost port. The browser talks to the Python host through native messaging (stdin/stdout).
+Local turn-taking mediator between two AI chat tabs, a LEFT side and a RIGHT side, built to the Sidera Phase 1 build specification. It uses the signed-in sessions in your default browser. There is no paid API and no localhost port. The browser talks to the Python host through native messaging (stdin/stdout).
 
-Grok is the right hemisphere named in the specification and the default. A Gemini adapter is included as well and any supported tab can be paired as RIGHT; the long burn-ins (50, 100 and 215 turns) were run against Gemini because Grok's free-tier usage limits interrupt multi-hour sessions.
+Each side can be ChatGPT, Grok, or Gemini — in any combination, including the same AI on both sides (for example ChatGPT vs ChatGPT in two separate tabs). Each side is bound to one specific tab, so same-site pairs route correctly and a reply never bounces back to the tab that wrote it. The defaults match the Phase 1 specification: LEFT is ChatGPT and RIGHT is Grok. The long burn-ins (50, 100 and 215 turns) were run against Gemini because Grok's free-tier usage limits interrupt multi-hour sessions.
 
 The state machine runs `WAIT_LEFT` → `PROCESS` → `SEND_RIGHT` → `WAIT_RIGHT` → `PROCESS` → `SEND_LEFT`, and pauses itself after the configured number of autonomous turns (50 by default) so a burn-in has a fixed ceiling.
 
@@ -14,6 +14,9 @@ Documentation: [tag protocol](docs/tag_protocol.md), [data schema](docs/data_sch
 python3 -m unittest discover tests
 node tests/test_completion.js
 node tests/test_content_recovery.js
+node tests/test_session.js
+node tests/test_sites.js
+node tests/test_background_routing.js
 ```
 
 Python 3.11 or newer is required (`config.toml` is read with the standard library's `tomllib`). The installer installs Python 3.12 if no 3.11+ is present.
@@ -47,11 +50,11 @@ What the installer does:
 
 Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. The launcher reads the Windows default browser for `https` and opens ChatGPT and Grok there with the Sidera extension already loaded from `C:\Sidera\chrome-extension`; nothing needs to be loaded by hand. That works when the default browser is Chrome, Edge, Brave, Vivaldi, or Opera. Firefox cannot load this extension. If the default browser cannot, and one of the supported browsers is installed, Sidera tells you and opens that one instead. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
 
-In the extension popup: pair the ChatGPT tab as LEFT, the Grok tab as RIGHT (or a Gemini tab, if you prefer), and press Start. If ChatGPT or Grok is already signed in, Sidera goes straight on. If either is signed out, Sidera opens that site's own login page. In the popup, under Saved logins, choose ChatGPT or Grok. Save login stores the email and password once. Change password replaces a saved password. Forget login removes it. Each login is stored under `C:\Sidera\data\credentials`, encrypted with Windows for that user account, and reused the next time that site is signed out. Passwords are not written to the transcript or the log. If a site asks for an email code or a captcha, finish that in the browser; Sidera continues as soon as the chat box is back. The Genesis Protocol (below) runs after sign-in, then Sidera waits for your opening message in the ChatGPT tab.
+In the extension popup: for each side pick the AI (ChatGPT, Grok, or Gemini) and the open tab that should hold that side, pair LEFT and RIGHT, and press Start. The defaults are LEFT ChatGPT and RIGHT Grok. To run the same AI against itself, open two tabs of that site and assign one tab to each side; the tab picker lists every matching open tab, and the same tab can never hold both sides. If ChatGPT or Grok is already signed in, Sidera goes straight on. If either is signed out, Sidera opens that site's own login page. In the popup, under Saved logins, choose ChatGPT or Grok. Save login stores the email and password once. Change password replaces a saved password. Forget login removes it. Each login is stored under `C:\Sidera\data\credentials`, encrypted with Windows for that user account, and reused the next time that site is signed out. Passwords are not written to the transcript or the log. If a site asks for an email code or a captcha, finish that in the browser; Sidera continues as soon as the chat box is back. The Genesis Protocol (below) runs after sign-in, then Sidera waits for your opening message in the LEFT tab.
 
 ## Operator controls (extension popup)
 
-- **Pair LEFT / Pair RIGHT**: assign the active tab. **Start Exchange**, **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
+- **Pair LEFT / Pair RIGHT**: pick the AI and the tab for each side, then pair. Any site can sit on either side, including the same site twice (one tab per side). **Start Exchange**, **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
 - **Manual forward** LEFT → RIGHT or RIGHT → LEFT: copies the newest completed reply once, through the same ledger and tag processing.
 - **Maximum autonomous turns**: change the ceiling while running; the value is remembered across restarts.
 - **Open data folder / Open latest log**.
@@ -128,7 +131,7 @@ Very long single chats are where ChatGPT, Grok and Gemini start hanging or answe
 
 | test | how it is met | where verified |
 | --- | --- | --- |
-| Tab pairing | popup pairs the active tab as LEFT or RIGHT; the adapter is picked by hostname | live |
+| Tab pairing | popup pairs a chosen tab as LEFT or RIGHT; each side picks its site (ChatGPT, Grok, or Gemini), same site on both sides allowed; messages route by tab id | `tests/test_background_routing.js`, `tests/test_sites.js`, live |
 | Response detection | stop-control state plus 2.5 s of stable text; interim status lines and canned errors are never forwarded | `tests/test_completion.js`, live |
 | One-way transfer | `SUBMIT_MESSAGE` → adapter paste → trusted Send click when needed → `SUBMISSION_CONFIRMED` | live |
 | Autonomous loop ≥ 50 turns | runs of 50, 100 and 215 alternating turns completed; long-session recoveries in place | live burn-ins |

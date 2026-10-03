@@ -17,6 +17,10 @@
     .error-text { color: #fca5a5; font-size: 12px; margin-top: 6px; overflow-wrap: anywhere; display: none; }
     .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; margin: 10px 0 6px; }
     .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+    .pair-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+    .pair-col { display: flex; flex-direction: column; gap: 6px; }
+    .pair-head { font-size: 11px; font-weight: 600; color: #94a3b8; letter-spacing: 0.04em; }
+    .pair-col select { width: 100%; box-sizing: border-box; padding: 5px 6px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #f8fafc; font-size: 12px; }
     button { padding: 7px 10px; border: none; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
     .btn-pair { background: #334155; color: #f8fafc; }
     .btn-pair:hover { background: #475569; }
@@ -48,11 +52,30 @@
     <div id="lastError" class="error-text"></div>
   </div>
 
-  <div class="section-title">Pair tabs (open the tab first, then click)</div>
-  <div class="btn-group">
-    <button id="btnPairLeft" class="btn-pair">Pair LEFT (ChatGPT)</button>
-    <button id="btnPairRight" class="btn-pair">Pair RIGHT (Grok)</button>
+  <div class="section-title">Pair tabs (pick the AI and its tab for each side)</div>
+  <div class="pair-grid">
+    <div class="pair-col">
+      <div class="pair-head">LEFT</div>
+      <select id="siteLeft">
+        <option value="chatgpt" selected>ChatGPT</option>
+        <option value="grok">Grok</option>
+        <option value="gemini">Gemini</option>
+      </select>
+      <select id="tabLeft"></select>
+      <button id="btnPairLeft" class="btn-pair">Pair LEFT</button>
+    </div>
+    <div class="pair-col">
+      <div class="pair-head">RIGHT</div>
+      <select id="siteRight">
+        <option value="chatgpt">ChatGPT</option>
+        <option value="grok" selected>Grok</option>
+        <option value="gemini">Gemini</option>
+      </select>
+      <select id="tabRight"></select>
+      <button id="btnPairRight" class="btn-pair">Pair RIGHT</button>
+    </div>
   </div>
+  <p class="hint">Both sides can use the same AI (for example ChatGPT vs ChatGPT): open two tabs of that site and pick a different tab for each side.</p>
 
   <div class="section-title">Exchange</div>
   <div class="btn-group">
@@ -101,6 +124,7 @@
   </div>
 
   <div class="status-text" id="statusMessage">Pair both tabs to begin.</div>
+  <script src="sites.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
