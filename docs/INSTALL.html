@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install Sidera, step by step</title>
+<!-- Generated from INSTALL.md by scripts/build_install_html.py; edit the .md, then rebuild. -->
+<style>
+body { font-family: "Segoe UI", Arial, sans-serif; font-size: 16px; line-height: 1.55;
+       color: #1f2933; max-width: 860px; margin: 0 auto; padding: 24px 28px 64px; }
+h1 { font-size: 28px; margin-top: 8px; }
+h2 { font-size: 22px; margin-top: 36px; border-bottom: 1px solid #d9e2ec; padding-bottom: 4px; }
+h3 { font-size: 18px; margin-top: 28px; }
+code { font-family: Consolas, "Courier New", monospace; background: #f0f4f8; padding: 1px 4px; border-radius: 3px; }
+pre { background: #f0f4f8; padding: 10px 14px; border-radius: 6px; overflow-x: auto; }
+pre code { background: none; padding: 0; font-size: 17px; }
+img { max-width: 100%; height: auto; border: 1px solid #bcccdc; border-radius: 6px; margin: 8px 0; }
+blockquote { margin: 12px 0; padding: 8px 14px; background: #fffbea; border-left: 4px solid #f0b429; color: #513c06; }
+blockquote p { margin: 4px 0; }
+li { margin: 6px 0; }
+</style>
+</head>
+<body>
+<h1 id="install-sidera-step-by-step">Install Sidera, step by step</h1>
+<p>Two stages: run the installer, then load the extension into Google Chrome once. The second stage is needed because current Google Chrome (version 137 and later) no longer lets a program load an extension for you; it must be loaded once by hand. It stays in Chrome afterwards — this is a one-time step, and it is free. (Microsoft Edge, Brave, Vivaldi, and Opera can pick the extension up by themselves when Sidera opens them, but only if that browser was fully closed first, with no window open and nothing left running in the background. If the Sidera button does not appear in one of those browsers, load the extension there by hand the same way as in stage 2.)</p>
+<p>About the pictures: the screenshots for steps 1, 2 and 6 of stage 2 are real captures of Google Chrome. The other steps are marked <strong>[screenshot pending]</strong>. Real Windows captures for them will be added after the first live install on a Windows PC. Until then, follow the text for those steps; it gives the exact buttons and the exact folder.</p>
+<h2 id="stage-1-run-the-installer">Stage 1: run the installer</h2>
+<blockquote>
+<p><strong>[screenshot pending]</strong> No picture of the installer window yet.</p>
+</blockquote>
+<ol type="1">
+<li>Double-click <code>INSTALL.bat</code> in the Sidera folder you downloaded.</li>
+<li>Answer the one question about a desktop icon.</li>
+</ol>
+<p>That copies Sidera to <code>C:\Sidera</code>, installs Python if needed, and registers the connection between the browser and the Sidera program. If Windows asks whether to allow the installer, choose Yes. When it finishes, the installer opens this guide in your web browser.</p>
+<h2 id="stage-2-load-the-extension-into-chrome-once">Stage 2: load the extension into Chrome (once)</h2>
+<h3 id="1-open-the-extensions-page">1. Open the Extensions page</h3>
+<p>Open Google Chrome. Click in the address bar at the top, type exactly:</p>
+<pre class="text"><code>chrome://extensions</code></pre>
+<p>and press Enter. This page opens:</p>
+<p><img src="img/install-1-extensions-page.png" alt="The Chrome Extensions page" /></p>
+<h3 id="2-turn-on-developer-mode">2. Turn on Developer mode</h3>
+<p>Find the <strong>Developer mode</strong> switch in the top-right corner of the page and click it so it turns blue. Three new buttons appear at the top left, including <strong>Load unpacked</strong>. Developer mode can stay on; it only means "allow loading an extension from a folder".</p>
+<p><img src="img/install-2-developer-mode.png" alt="Developer mode on, Load unpacked visible" /></p>
+<h3 id="3-click-load-unpacked">3. Click "Load unpacked"</h3>
+<p>Click the <strong>Load unpacked</strong> button at the top left. A Windows folder window opens, asking you to pick a folder.</p>
+<blockquote>
+<p><strong>[screenshot pending (Windows)]</strong> No picture of the Windows folder window yet.</p>
+</blockquote>
+<h3 id="4-go-to-the-sidera-extension-folder">4. Go to the Sidera extension folder</h3>
+<p>The folder to pick is exactly:</p>
+<pre class="text"><code>C:\Sidera\chrome-extension</code></pre>
+<p>In the folder window, click in the address bar at the top (the bar that shows the current folder path), type or paste <code>C:\Sidera\chrome-extension</code>, and press Enter. The window now shows the inside of that folder. Because Chrome's folder picker lists only folders, you will see just an <code>adapters</code> folder there and no files. That is normal: you are in the right place.</p>
+<blockquote>
+<p><strong>[screenshot pending (Windows)]</strong> No picture of the folder window with <code>C:\Sidera\chrome-extension</code> open yet.</p>
+</blockquote>
+<h3 id="5-confirm-with-select-folder">5. Confirm with "Select Folder"</h3>
+<p>Click <strong>Select Folder</strong> at the bottom right of the window. The folder to pick is the <code>chrome-extension</code> folder itself — the folder that directly contains the file <code>manifest.json</code> — not the <code>C:\Sidera</code> folder above it and not any folder inside it.</p>
+<blockquote>
+<p><strong>[screenshot pending]</strong> No picture of this step yet.</p>
+</blockquote>
+<h3 id="6-check-the-sidera-card">6. Check the Sidera card</h3>
+<p>The Sidera Dual-Hemisphere Mediator card appears on the Extensions page. Under its description it shows an ID. Check that the ID reads exactly:</p>
+<pre class="text"><code>pekgjaanmdkkpclhlobpcggibbkgjbgd</code></pre>
+<p><img src="img/install-5-loaded.png" alt="The loaded Sidera extension with its ID" /></p>
+<p>(The screenshot was taken with an earlier build, so its card says version 1.0.0. Your card shows the current version, 1.1.0. The ID is the same.)</p>
+<p>The Sidera program on your PC only talks to the extension with this ID. The ID is built into the extension itself, so it is the same whichever folder the extension is loaded from. Still, load it from <code>C:\Sidera\chrome-extension</code>: that is the copy <code>INSTALL.bat</code> keeps up to date, so a later update reaches Chrome (after you click the card's reload arrow or restart Chrome).</p>
+<h3 id="7-done--start-sidera">7. Done — start Sidera</h3>
+<p>Close the Extensions page. From now on, start Sidera by double-clicking the <strong>Sidera Mediator</strong> icon (desktop or Start menu). It opens ChatGPT and Grok, each in its own window. Click the puzzle-piece icon to the right of Chrome's address bar and pin <strong>Sidera Dual-Hemisphere Mediator</strong> so its button is always visible, then click that button to open the control popup.</p>
+<blockquote>
+<p><strong>[screenshot pending]</strong> No picture of the popup opened from Chrome's toolbar yet.</p>
+</blockquote>
+<p>In the popup, pick the AI and the tab for each side, pair LEFT and RIGHT, and press <strong>Start Exchange</strong>. If the popup says <strong>Not running</strong>, the Sidera program has not been started yet: double-click the <strong>Sidera Mediator</strong> icon.</p>
+<h2 id="if-it-doesnt-show-up">If it doesn't show up</h2>
+<ul>
+<li><strong>No card appears, or Chrome says "Manifest file is missing or unreadable".</strong> The wrong folder was picked. Repeat step 3 and choose <code>C:\Sidera\chrome-extension</code> itself — the folder that directly contains <code>manifest.json</code> — not <code>C:\Sidera</code> and not a folder inside <code>chrome-extension</code>.</li>
+<li><strong>It was loaded from the downloaded folder instead of <code>C:\Sidera</code>.</strong> It works (the ID is the same), but later updates installed with <code>INSTALL.bat</code> will not reach Chrome. Click <strong>Remove</strong> on the card and load <code>C:\Sidera\chrome-extension</code> instead.</li>
+<li><strong>The popup says "Sidera program: Not running — open Sidera from its icon".</strong> The extension is fine; the Sidera program is not running. Close the popup and double-click the <strong>Sidera Mediator</strong> icon. If that never helps, run <code>INSTALL.bat</code> again and restart Chrome.</li>
+<li><strong>The card is there but the Sidera button is nowhere in the toolbar.</strong> Click the puzzle-piece icon to the right of the address bar; Sidera is in that list. Click the pin next to it.</li>
+<li><strong>The extension disappeared after Chrome restarted.</strong> Chrome was probably opened with a different profile (a different person icon in the top-right corner). Switch to the profile where Sidera was loaded, or load it in the current profile the same way.</li>
+<li><strong>Chrome shows a bubble about developer-mode extensions on startup.</strong> That is normal for any extension loaded from a folder. Nothing needs to be done.</li>
+</ul>
+</body>
+</html>

@@ -1,8 +1,12 @@
 Option Explicit
 ' Windowless launcher. wscript.exe //B shows no console.
-' Opens ChatGPT and Grok in the default browser when that browser can
-' load the Sidera extension (Chrome, Edge, Brave, Vivaldi, Opera, or Chromium),
-' with the extension already loaded. Firefox and other non-Chromium defaults
+' Opens ChatGPT and Grok, each in its own window, in the default browser when
+' that browser can host the Sidera extension (Chrome, Edge, Brave, Vivaldi,
+' Opera, or Chromium). It does NOT load the extension into Google Chrome:
+' Chrome 137+ ignores --load-extension, so on Chrome the extension is loaded
+' once by hand (Load unpacked, see docs/INSTALL.html) and then stays loaded.
+' Edge, Brave, Vivaldi, Opera and Chromium still pick it up from the flag
+' passed below. Firefox and other non-Chromium defaults
 ' cannot host the extension; a supported browser already on the machine is
 ' opened instead, and a short notice says which one.
 Dim shell, fso, installRoot, extensionDir, manifestPath
@@ -41,7 +45,17 @@ Else
 End If
 
 RegisterHost chosenHive, manifestPath
-shell.Run """" & chosenExe & """ --load-extension=""" & extensionDir & """ --silent-debugger-extension-api --new-window https://chatgpt.com/ https://grok.com/", 1, False
+' --load-extension is a free bonus, not the install path: branded Google
+' Chrome 137+ (May 2025) ignores the flag with a warning, so on Chrome the
+' extension is loaded once by hand instead (chrome://extensions -> Developer
+' mode -> Load unpacked; see docs/INSTALL.html). Edge, Brave, Vivaldi, Opera and
+' Chromium still honor the flag (only when started from fully closed), and an already-loaded unpacked extension
+' stays in the profile either way.
+' Each site gets its own window so neither side sits as a hidden background
+' tab, which Chrome would throttle during long runs.
+shell.Run """" & chosenExe & """ --load-extension=""" & extensionDir & """ --silent-debugger-extension-api --new-window https://chatgpt.com/", 1, False
+WScript.Sleep 1500
+shell.Run """" & chosenExe & """ --new-window https://grok.com/", 1, False
 
 Function RegRead(path)
   On Error Resume Next

@@ -17,6 +17,17 @@
   let generatingSince = 0;
   let generatingLength = -1;
   let retryIssuedAt = 0;
+  // While a reply streams, tell the mediator now and then that text is still
+  // arriving, so its idle watchdog never pauses a long but healthy reply.
+  const PROGRESS_EVERY_MS = 60 * 1000;
+  let lastProgressSent = 0;
+
+  function reportProgress(length) {
+    const now = Date.now();
+    if (now - lastProgressSent < PROGRESS_EVERY_MS) return;
+    lastProgressSent = now;
+    chrome.runtime.sendMessage({ type: "REPLY_PROGRESS", hemisphere: hemisphere, chars: length });
+  }
 
   // The last message pasted into this page, kept on the document so a
   // re-paired copy of this script can still retry it.
@@ -448,6 +459,8 @@
     const length = latest && latest.text ? latest.text.length : 0;
     const now = Date.now();
     if (!generatingSince || length !== generatingLength) {
+      // New text arrived (not just a spinner): that is progress.
+      if (generatingSince && length > 0) reportProgress(length);
       generatingSince = now;
       generatingLength = length;
       saveGenerationWatch();
@@ -608,6 +621,12 @@
       }
       startObserver();
       sendResponse({ status: "paired", hemisphere: hemisphere });
+    } else if (msg.type === "UNASSIGN_HEMISPHERE") {
+      // This tab no longer holds a side (re-paired away, or it was never
+      // paired). Stop watching so it cannot report replies for a side.
+      retire();
+      if (isCurrentInstance()) delete document.documentElement.dataset.sideraInstance;
+      sendResponse({ status: "retired" });
     } else if (msg.type === "INJECT_AND_SUBMIT") {
       injectAndSubmit(msg.text, msg.message_id);
       sendResponse({ status: "submitting" });

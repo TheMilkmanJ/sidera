@@ -17,6 +17,7 @@ node tests/test_content_recovery.js
 node tests/test_session.js
 node tests/test_sites.js
 node tests/test_background_routing.js
+python3 scripts/build_install_html.py --check   # docs/INSTALL.html matches docs/INSTALL.md
 ```
 
 Python 3.11 or newer is required (`config.toml` is read with the standard library's `tomllib`). The installer installs Python 3.12 if no 3.11+ is present.
@@ -31,6 +32,7 @@ Python 3.11 or newer is required (`config.toml` is read with the standard librar
 | `mediator.max_autonomous_turns` | `50` | pause after this many autonomous turns (also adjustable in the popup) |
 | `mediator.autonomous_submissions` | `true` | `false` = monitor and log only, never paste |
 | `mediator.rotate_after_pastes` | `50` | move a side to a fresh, caught-up chat after this many pastes into one chat |
+| `mediator.idle_timeout_minutes` | `20` | pause with a plain explanation when nothing is detected from a side for this long (`0` disables) |
 | `genesis.enabled` | `true` | teach both AIs the tag protocol when Start is pressed |
 | `genesis.prompt_file` | `mediator/genesis_protocol.md` | the protocol text |
 | `logging.level` | `INFO` | log verbosity |
@@ -48,17 +50,23 @@ What the installer does:
 3. Registers `com.sidera.mediator.json` as a native-messaging host for Chrome, Edge, Brave, Vivaldi, Opera, and Chromium (stable and the Chrome/Edge preview channels).
 4. Adds **Sidera Mediator** to the Start menu, and to the desktop if you say yes (the default). Run `INSTALL.bat -DesktopIcon Yes` or `-DesktopIcon No` to skip the question.
 
-Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. The launcher reads the Windows default browser for `https` and opens ChatGPT and Grok there with the Sidera extension already loaded from `C:\Sidera\chrome-extension`; nothing needs to be loaded by hand. That works when the default browser is Chrome, Edge, Brave, Vivaldi, or Opera. Firefox cannot load this extension. If the default browser cannot, and one of the supported browsers is installed, Sidera tells you and opens that one instead. The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd`, which is the origin allowed by the native host.
+Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. The launcher reads the Windows default browser for `https` and opens ChatGPT and Grok there, each in its own window. The browser matters for how the extension gets loaded:
+
+- **Google Chrome (the normal, current version):** the extension must be loaded by hand once. Chrome 137 (May 2025) removed the `--load-extension` command-line switch from regular Chrome, so no program can load it for you, and a policy-based automatic install of a non-Web-Store extension only works on company (domain-managed) PCs, not on a home PC. The one-time step is free and takes about a minute: open `chrome://extensions`, turn on Developer mode, click **Load unpacked**, and select `C:\Sidera\chrome-extension`. The extension then stays in Chrome permanently. **[docs/INSTALL.md](docs/INSTALL.md) walks through it step by step** (the installer opens the same guide as `C:\Sidera\docs\INSTALL.html` in the default browser when it finishes). Steps 1, 2 and 6 have real Chrome screenshots; the rest are marked *[screenshot pending]* until real Windows captures are taken. After editing `docs/INSTALL.md`, rebuild the HTML with `python3 scripts/build_install_html.py`.
+- **Edge, Brave, Vivaldi, Opera, Chromium:** these still honor `--load-extension`, but only when the launcher starts the browser from fully closed (no window open and nothing running in the background). If the browser was already running, or the Sidera button does not appear, load the extension by hand once in that browser, the same way as in Chrome.
+- **Firefox** cannot load this extension. If the default browser is unsupported and a supported browser is installed, Sidera tells you and opens that one instead.
+
+The manifest key pins the extension id to `pekgjaanmdkkpclhlobpcggibbkgjbgd` — also when loaded unpacked — which is the origin allowed by the native host.
 
 In the extension popup: for each side pick the AI (ChatGPT, Grok, or Gemini) and the open tab that should hold that side, pair LEFT and RIGHT, and press Start. The defaults are LEFT ChatGPT and RIGHT Grok. To run the same AI against itself, open two tabs of that site and assign one tab to each side; the tab picker lists every matching open tab, and the same tab can never hold both sides. If ChatGPT or Grok is already signed in, Sidera goes straight on. If either is signed out, Sidera opens that site's own login page. In the popup, under Saved logins, choose ChatGPT or Grok. Save login stores the email and password once. Change password replaces a saved password. Forget login removes it. Each login is stored under `C:\Sidera\data\credentials`, encrypted with Windows for that user account, and reused the next time that site is signed out. Passwords are not written to the transcript or the log. If a site asks for an email code or a captcha, finish that in the browser; Sidera continues as soon as the chat box is back. The Genesis Protocol (below) runs after sign-in, then Sidera waits for your opening message in the LEFT tab.
 
 ## Operator controls (extension popup)
 
-- **Pair LEFT / Pair RIGHT**: pick the AI and the tab for each side, then pair. Any site can sit on either side, including the same site twice (one tab per side). **Start Exchange**, **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
+- **Pair LEFT / Pair RIGHT**: pick the AI and the tab for each side, then pair. Any site can sit on either side, including the same site twice (one tab per side; two sides on the same account share that account's message limits). **Open in a new window** opens the chosen site in a new window of its own and preselects it — handy for same-AI runs. When a site has more than one open tab, the picker numbers them by site ("ChatGPT 1: <title>", "ChatGPT 2: <title>"), and the AI picked for each side is remembered as soon as it is picked. Closing a paired tab unpairs that side immediately (and pauses a running exchange with a plain reason). **Start Exchange** (refused with a clear message until both sides are paired), **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
 - **Manual forward** LEFT → RIGHT or RIGHT → LEFT: copies the newest completed reply once, through the same ledger and tag processing.
 - **Maximum autonomous turns**: change the ceiling while running; the value is remembered across restarts.
 - **Open data folder / Open latest log**.
-- Status: state, turn `N / max`, last message ID, mediator connection, mode (autonomous or monitor only) and the last error or pause reason in the site's own words.
+- Status: state, turn `N / max`, the last message's log number, whether the Sidera program is running, whether Sidera is pasting replies (on, or watching only) and the last error or pause reason in plain words.
 
 ## Genesis Protocol
 
@@ -126,6 +134,7 @@ Very long single chats are where ChatGPT, Grok and Gemini start hanging or answe
 - Only an exact repeat of a side's most recent reply is treated as a duplicate; a reply that genuinely repeats the previous one is still forwarded.
 - Some sites (Gemini) only submit on trusted input, so if a paste is still sitting in the composer after the normal submit, the extension presses the site's Send button through the browser's debugger API (the launcher passes `--silent-debugger-extension-api`, so there is no infobar).
 - If a site keeps refusing a message (Grok's free-tier usage limit, Gemini's "Something went wrong (1095)"), the mediator pauses and shows the site's own notice in the popup and log. Press Resume once the site accepts messages again; the pending message is pasted again automatically.
+- If nothing at all is detected from a side for `idle_timeout_minutes` (20 by default — for example after a site changes its page layout and the reply detector goes blind), the mediator pauses with a plain explanation instead of waiting forever. Nothing is clicked or retried blindly; press Resume after checking the tab.
 
 ## Specification acceptance criteria (section 12)
 
@@ -142,4 +151,4 @@ Very long single chats are where ChatGPT, Grok and Gemini start hanging or answe
 | File I/O | create/append/read/list under `data/files`; traversal, absolute and UNC paths, other extensions rejected | `tests/test_file_sandbox.py`, `tests/test_genesis_protocol.py` |
 | Persistence | ledger/memory intact after restart, nothing replayed | `tests/test_spec_compliance.py` |
 | Logging | every message, tag operation, transition and error in `sidera_mediator.log` and the transcript | `tests/test_burn_in_logging.py` |
-| Website failure | missing composer → `INJECTION_ERROR` → ERROR state; refused paste → PAUSED with the site's notice | `tests/test_genesis_protocol.py` |
+| Website failure | missing composer → `INJECTION_ERROR` → safe stop with a plain error; refused paste → PAUSED with the site's notice; silent detection failure → PAUSED by the idle timeout | `tests/test_genesis_protocol.py`, `tests/test_idle_timeout.py` |

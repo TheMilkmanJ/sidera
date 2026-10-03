@@ -80,6 +80,58 @@ class TestBurnInLogging(unittest.TestCase):
         log_text = (self.root / "logs" / "sidera_mediator.log").read_text(encoding="utf-8")
         self.assertIn("BURN_IN_LIMIT_REACHED turns=51/50", log_text)
 
+    def test_fifty_turn_same_site_loop_without_duplicate_forwarding(self):
+        # ChatGPT on BOTH slots (the headline same-AI case): 50 alternating
+        # turns complete, each reply is forwarded exactly once, and a DOM
+        # re-render of a previous reply is never resent (spec 12, tests 4+5).
+        self.service.handle_message({"type": "HOOK_SLOT", "slot_id": "LEFT", "adapter_type": "chatgpt", "tab_id": 11})
+        self.service.handle_message({"type": "HOOK_SLOT", "slot_id": "RIGHT", "adapter_type": "chatgpt", "tab_id": 22})
+        self.assertEqual(self.service.state_machine.slots["LEFT"].adapter_type, "chatgpt")
+        self.assertEqual(self.service.state_machine.slots["RIGHT"].adapter_type, "chatgpt")
+
+        self.service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        last_text = {"LEFT": None, "RIGHT": None}
+
+        def submit_count():
+            return len([m for m in self.service.ipc.sent if m.get("type") == "SUBMIT_MESSAGE"])
+
+        for index in range(50):
+            source = "LEFT" if index % 2 == 0 else "RIGHT"
+
+            # While waiting for this side, its tab re-renders its PREVIOUS
+            # answer (a DOM re-render / observer duplicate). It must be
+            # ignored, never forwarded again.
+            if last_text[source] is not None:
+                before = submit_count()
+                self.service.handle_message({"type": "RESPONSE_CAPTURED", "source": source, "content": last_text[source]})
+                self.assertEqual(submit_count(), before, f"re-render before turn {index} must not be forwarded")
+
+            text = f"Same-site reply {index} from {source}."
+            self.service.handle_message({"type": "RESPONSE_CAPTURED", "source": source, "content": text})
+            last_text[source] = text
+            submitted = self._submitted()
+            self.assertEqual(submitted["destination"], "RIGHT" if source == "LEFT" else "LEFT")
+
+            # A second copy of the same reply arriving mid-send is dropped by
+            # the turn guard as well.
+            before = submit_count()
+            self.service.handle_message({"type": "RESPONSE_CAPTURED", "source": source, "content": text})
+            self.assertEqual(submit_count(), before, f"duplicate at turn {index} must not be forwarded again")
+
+            self.service.handle_message({
+                "type": "SUBMISSION_CONFIRMED",
+                "destination": submitted["destination"],
+                "message_id": submitted["message_id"],
+            })
+
+        self.assertEqual(self.service.state_machine.turn_count, 50)
+        self.assertEqual(self.service.ledger.get_turn_count(self.service.conversation_id), 50)
+        submits = [m for m in self.service.ipc.sent if m.get("type") == "SUBMIT_MESSAGE"]
+        self.assertEqual(len(submits), 50, "each reply is forwarded exactly once")
+        self.assertEqual(len({m["message_id"] for m in submits}), 50, "no message id is ever resent")
+        duplicates = [m for m in self.service.ipc.sent if m.get("type") == "DUPLICATE_IGNORED"]
+        self.assertEqual(len(duplicates), 48, "every waiting-side re-render is flagged as a duplicate")
+
     def test_injection_error_is_recorded(self):
         self.service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
         self.service.handle_message({

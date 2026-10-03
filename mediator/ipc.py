@@ -7,6 +7,7 @@ import json
 import logging
 import struct
 import sys
+import threading
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger("sidera.ipc")
@@ -16,6 +17,9 @@ class NativeMessagingIPC:
     def __init__(self, stdin=None, stdout=None):
         self.stdin = stdin or sys.stdin.buffer
         self.stdout = stdout or sys.stdout.buffer
+        # The idle watchdog thread can send while the main loop does; a frame
+        # must never interleave with another frame.
+        self._send_lock = threading.Lock()
 
     def read_message(self) -> Optional[Dict[str, Any]]:
         raw_length = self.stdin.read(4)
@@ -40,8 +44,9 @@ class NativeMessagingIPC:
             encoded_json = json.dumps(message).encode("utf-8")
             length = len(encoded_json)
             header = struct.pack("@I", length)
-            self.stdout.write(header)
-            self.stdout.write(encoded_json)
-            self.stdout.flush()
+            with self._send_lock:
+                self.stdout.write(header)
+                self.stdout.write(encoded_json)
+                self.stdout.flush()
         except Exception as e:
             logger.error(f"Failed to send Native Messaging message: {e}")

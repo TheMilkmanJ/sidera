@@ -9,14 +9,15 @@ const vm = require("node:vm");
 
 const root = path.join(__dirname, "..", "chrome-extension");
 
-function makeHarness() {
+function makeHarness({ localStore = {} } = {}) {
   const tabs = new Map();
   const sentToTabs = [];
   const posted = []; // messages the background sends to the Python mediator
   const timers = [];
-  const listeners = { onMessage: null, onUpdated: null, nativeOnMessage: null };
+  const listeners = { onMessage: null, onUpdated: null, onRemoved: null, onReplaced: null, nativeOnMessage: null };
   // How a tab answers chrome.tabs.sendMessage; tests override per message type.
-  let tabResponder = () => undefined;
+  // Returning { __error: "..." } simulates a tab with no content script.
+  let tabResponder = (tabId, msg) => (msg.type === "ASSIGN_HEMISPHERE" ? { status: "paired" } : undefined);
 
   const chrome = {
     runtime: {
@@ -36,6 +37,10 @@ function makeHarness() {
         get(keys, cb) { cb({}); },
         set() { return Promise.resolve(); },
       },
+      local: {
+        get(keys, cb) { cb({ ...localStore }); },
+        set(items, cb) { Object.assign(localStore, items); if (cb) cb(); },
+      },
     },
     tabs: {
       get(tabId, cb) {
@@ -52,10 +57,18 @@ function makeHarness() {
       sendMessage(tabId, msg, cb) {
         sentToTabs.push({ tabId, msg });
         const response = tabResponder(tabId, msg);
+        if (response && response.__error) {
+          chrome.runtime.lastError = { message: response.__error };
+          if (cb) cb(undefined);
+          chrome.runtime.lastError = null;
+          return;
+        }
         if (cb) cb(response);
       },
       update() {},
       onUpdated: { addListener(fn) { listeners.onUpdated = fn; } },
+      onRemoved: { addListener(fn) { listeners.onRemoved = fn; } },
+      onReplaced: { addListener(fn) { listeners.onReplaced = fn; } },
     },
     windows: { update() {} },
     debugger: { attach: async () => {}, sendCommand: async () => {}, detach: async () => {} },
@@ -84,13 +97,22 @@ function makeHarness() {
     removeTab(id) { tabs.delete(id); },
     setTabResponder(fn) { tabResponder = fn; },
     // A popup/content message into the background; returns the response.
-    dispatch(request) {
+    // Pass a tab id as `fromTab` for messages that come from a content script.
+    dispatch(request, fromTab) {
       let response;
-      listeners.onMessage(request, {}, (resp) => { response = resp; });
+      const sender = fromTab != null ? { tab: { id: fromTab } } : {};
+      listeners.onMessage(request, sender, (resp) => { response = resp; });
       return response;
     },
     fromMediator(msg) { listeners.nativeOnMessage(msg); },
-    tabNavigated(tabId) { listeners.onUpdated(tabId, { status: "complete" }); },
+    tabNavigated(tabId) { listeners.onUpdated(tabId, { status: "complete" }, tabs.get(tabId)); },
+    closeTab(tabId) { tabs.delete(tabId); listeners.onRemoved(tabId); },
+    replaceTab(oldId, newId, url) {
+      tabs.delete(oldId);
+      tabs.set(newId, { id: newId, url, title: `tab-${newId}`, status: "complete", active: false, index: newId, windowId: 1 });
+      listeners.onReplaced(newId, oldId);
+    },
+    localStore,
     sentToTabs,
     posted,
   };
@@ -235,7 +257,313 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
   assert.match(gone.error, /no longer open/);
   const started = h.dispatch({ type: "START" });
   assert.equal(started.ok, false);
-  assert.match(started.error, /Pair a tab as LEFT/);
+  assert.match(started.error, /Pair a tab as LEFT and a tab as RIGHT/);
+}
+
+// Start is refused with a clear message naming the side that is missing,
+// instead of starting a handshake that would stall silently.
+{
+  const h = makeHarness();
+  h.addTab(11, "https://chatgpt.com/");
+  h.addTab(12, "https://grok.com/");
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 11 }).success, true);
+  const onlyLeft = h.dispatch({ type: "START" });
+  assert.equal(onlyLeft.ok, false);
+  assert.equal(onlyLeft.error, "Pair a tab as RIGHT before starting.");
+  assert.ok(!h.posted.some((m) => m.type === "START"), "no START reaches the mediator");
+
+  const h2 = makeHarness();
+  h2.addTab(12, "https://grok.com/");
+  assert.equal(h2.dispatch({ type: "PAIR_TAB", side: "RIGHT", adapterType: "grok", tabId: 12 }).success, true);
+  const onlyRight = h2.dispatch({ type: "START" });
+  assert.equal(onlyRight.ok, false);
+  assert.equal(onlyRight.error, "Pair a tab as LEFT before starting.");
+}
+
+// REGRESSION (audit HIGH): inbound replies are attributed by the sender's tab
+// id against the registry. A leftover same-site tab that was re-paired away
+// can never speak for a side, and is told to stand down.
+{
+  const h = makeHarness();
+  h.addTab(11, "https://chatgpt.com/c/old");
+  h.addTab(22, "https://chatgpt.com/c/right");
+  h.addTab(33, "https://chatgpt.com/c/new-left");
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 11 }).success, true);
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "RIGHT", adapterType: "chatgpt", tabId: 22 }).success, true);
+
+  // Re-pair LEFT to tab 33: the old tab 11 is told to stand down.
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 33 }).success, true);
+  assert.deepEqual(sends(h, "UNASSIGN_HEMISPHERE").map((entry) => entry.tabId), [11]);
+
+  // A reply from the stray old tab claiming LEFT is dropped, not forwarded,
+  // and the stray is told to stand down again.
+  h.dispatch({ type: "RESPONSE_CAPTURED", source: "LEFT", content: "stray reply" }, 11);
+  assert.equal(h.posted.filter((m) => m.type === "RESPONSE_CAPTURED").length, 0, "stray reply never reaches the mediator");
+  assert.deepEqual(sends(h, "UNASSIGN_HEMISPHERE").map((entry) => entry.tabId), [11, 11]);
+
+  // The real LEFT tab's reply is forwarded.
+  h.dispatch({ type: "RESPONSE_CAPTURED", source: "LEFT", content: "real left reply", fresh: true }, 33);
+  const captured = h.posted.filter((m) => m.type === "RESPONSE_CAPTURED");
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].source, "LEFT");
+  assert.equal(captured[0].content, "real left reply");
+  assert.equal(captured[0].fresh, true);
+
+  // The side label comes from the registry, never from the page: RIGHT's tab
+  // claiming to be LEFT is forwarded as RIGHT.
+  h.dispatch({ type: "RESPONSE_CAPTURED", source: "LEFT", content: "mislabeled" }, 22);
+  const relabeled = h.posted.filter((m) => m.type === "RESPONSE_CAPTURED");
+  assert.equal(relabeled.length, 2);
+  assert.equal(relabeled[1].source, "RIGHT");
+
+  // Same rule for the other content events.
+  h.dispatch({ type: "SUBMISSION_CONFIRMED", destination: "LEFT", message_id: "SIDERA-1" }, 22);
+  const confirms = h.posted.filter((m) => m.type === "SUBMISSION_CONFIRMED");
+  assert.equal(confirms.length, 1);
+  assert.equal(confirms[0].destination, "RIGHT");
+  h.dispatch({ type: "INJECTION_ERROR", hemisphere: "RIGHT", message_id: "SIDERA-2", error: "x" }, 11);
+  assert.equal(h.posted.filter((m) => m.type === "INJECTION_ERROR").length, 0, "stray injection error dropped");
+
+  // Streaming progress follows the same rule: relabelled from the registry,
+  // dropped from a stray tab.
+  h.dispatch({ type: "REPLY_PROGRESS", hemisphere: "LEFT", chars: 500 }, 22);
+  h.dispatch({ type: "REPLY_PROGRESS", hemisphere: "LEFT", chars: 500 }, 11);
+  const progress = h.posted.filter((m) => m.type === "REPLY_PROGRESS");
+  assert.equal(progress.length, 1, "stray progress dropped");
+  assert.equal(progress[0].hemisphere, "RIGHT");
+}
+
+// MEDIUM (audit): pairing requires the tab to acknowledge. A tab with no
+// content script (opened before install, or discarded) fails with a plain
+// error and the side stays unpaired.
+{
+  const h = makeHarness();
+  h.addTab(11, "https://chatgpt.com/");
+  h.setTabResponder((tabId, msg) => (msg.type === "ASSIGN_HEMISPHERE" ? { __error: "Could not establish connection. Receiving end does not exist." } : undefined));
+  const resp = h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 11 });
+  assert.equal(resp.success, false);
+  assert.match(resp.error, /Reload the tab/);
+  assert.ok(!/Receiving end/i.test(resp.error), "raw chrome error is not shown");
+  const status = h.dispatch({ type: "GET_STATUS" });
+  assert.equal(status.leftPaired, false);
+  assert.ok(!h.posted.some((m) => m.type === "HOOK_SLOT"), "no HOOK_SLOT for a failed pairing");
+}
+
+// Audit N4: a failed re-pair mid-run keeps the side on its current tab. The
+// old tab is told to stand down only after the new tab has acknowledged.
+{
+  const h = makeHarness();
+  h.addTab(11, "https://chatgpt.com/c/old");
+  h.addTab(22, "https://grok.com/");
+  h.addTab(33, "https://chatgpt.com/c/new");
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 11 }).success, true);
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "RIGHT", adapterType: "grok", tabId: 22 }).success, true);
+  h.fromMediator({ type: "STATE_UPDATE", state: "WAIT_LEFT", turn_count: 4 });
+
+  h.setTabResponder((tabId, msg) => (msg.type === "ASSIGN_HEMISPHERE" && tabId === 33
+    ? { __error: "Could not establish connection. Receiving end does not exist." }
+    : (msg.type === "ASSIGN_HEMISPHERE" ? { status: "paired" } : undefined)));
+  const failed = h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 33 });
+  assert.equal(failed.success, false);
+  assert.match(failed.error, /Reload the tab/);
+  assert.match(failed.error, /LEFT stays paired to its previous tab/);
+  assert.equal(sends(h, "UNASSIGN_HEMISPHERE").length, 0, "the working tab was never told to stop");
+  const status = h.dispatch({ type: "GET_STATUS" });
+  assert.equal(status.slots.LEFT.tabId, 11, "LEFT keeps its working tab");
+  assert.equal(status.leftPaired, true);
+
+  // The old tab still speaks for LEFT.
+  h.dispatch({ type: "RESPONSE_CAPTURED", source: "LEFT", content: "still here", fresh: true }, 11);
+  assert.equal(h.posted.filter((m) => m.type === "RESPONSE_CAPTURED").length, 1);
+
+  // A successful re-pair: ASSIGN to the new tab comes before UNASSIGN to the old.
+  h.setTabResponder((tabId, msg) => (msg.type === "ASSIGN_HEMISPHERE" ? { status: "paired" } : undefined));
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 33 }).success, true);
+  const order = h.sentToTabs
+    .filter((e) => (e.msg.type === "ASSIGN_HEMISPHERE" && e.tabId === 33) || e.msg.type === "UNASSIGN_HEMISPHERE")
+    .map((e) => `${e.msg.type}:${e.tabId}`);
+  assert.deepEqual(order.slice(-2), ["ASSIGN_HEMISPHERE:33", "UNASSIGN_HEMISPHERE:11"]);
+  assert.equal(h.dispatch({ type: "GET_STATUS" }).slots.LEFT.tabId, 33);
+}
+
+// A tab whose acknowledgement is still on its way is not retired if its
+// content script speaks first; the message is simply dropped.
+{
+  const h = makeHarness();
+  h.addTab(11, "https://chatgpt.com/");
+  let ctxDispatch = null;
+  h.setTabResponder((tabId, msg) => {
+    if (msg.type === "ASSIGN_HEMISPHERE") {
+      ctxDispatch({ type: "RESPONSE_CAPTURED", source: "LEFT", content: "early" }, 11);
+      return { status: "paired" };
+    }
+    return undefined;
+  });
+  ctxDispatch = (req, tab) => h.dispatch(req, tab);
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 11 }).success, true);
+  assert.equal(sends(h, "UNASSIGN_HEMISPHERE").length, 0, "a tab being paired is not told to stop");
+  assert.equal(h.posted.filter((m) => m.type === "RESPONSE_CAPTURED").length, 0);
+}
+
+// The AI picked for a side is saved as soon as it is picked, before Pair,
+// merged per side, and comes back after a browser restart. A paired side
+// keeps its tab and AI until it is re-paired.
+{
+  const store = { adapterChoices: { LEFT: "chatgpt", RIGHT: "gemini" } };
+  const h = makeHarness({ localStore: store });
+  assert.equal(h.dispatch({ type: "GET_STATUS" }).slots.RIGHT.adapter, "gemini", "restored at startup");
+  const resp = h.dispatch({ type: "SET_ADAPTER_CHOICE", side: "LEFT", adapterType: "grok" });
+  assert.deepEqual(plain(resp), { ok: true, side: "LEFT", adapterType: "grok" });
+  assert.deepEqual(plain(store.adapterChoices), { LEFT: "grok", RIGHT: "gemini" }, "only LEFT changed");
+  const status = h.dispatch({ type: "GET_STATUS" });
+  assert.equal(status.slots.LEFT.adapter, "grok");
+  assert.equal(status.choices.LEFT, "grok");
+  assert.equal(h.dispatch({ type: "SET_ADAPTER_CHOICE", side: "RIGHT", adapterType: "nonsense" }).adapterType, "grok", "unknown AI falls back to the side default");
+
+  const h2 = makeHarness({ localStore: plain(store) });
+  const after = h2.dispatch({ type: "GET_STATUS" });
+  assert.equal(after.slots.LEFT.adapter, "grok", "the unpaired choice survives a restart");
+  assert.equal(after.choices.LEFT, "grok");
+
+  // A paired side: the choice is remembered, the pairing is untouched.
+  h2.addTab(11, "https://grok.com/");
+  assert.equal(h2.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "grok", tabId: 11 }).success, true);
+  h2.dispatch({ type: "SET_ADAPTER_CHOICE", side: "LEFT", adapterType: "chatgpt" });
+  const paired = h2.dispatch({ type: "GET_STATUS" });
+  assert.equal(paired.slots.LEFT.adapter, "grok");
+  assert.equal(paired.slots.LEFT.tabId, 11);
+  assert.equal(paired.choices.LEFT, "chatgpt");
+  assert.equal(h2.localStore.adapterChoices.LEFT, "chatgpt");
+}
+
+// Closing a paired tab unpairs the side at once; during a run the mediator is
+// paused with a plain reason, and a send to the unpaired side reports an
+// INJECTION_ERROR instead of vanishing into the console.
+{
+  const h = makeHarness();
+  h.addTab(11, "https://chatgpt.com/c/a");
+  h.addTab(22, "https://chatgpt.com/c/b");
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 11 }).success, true);
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "RIGHT", adapterType: "chatgpt", tabId: 22 }).success, true);
+
+  // Mediator reports a running exchange, then the RIGHT tab is closed.
+  h.fromMediator({ type: "STATE_UPDATE", state: "WAIT_RIGHT", turn_count: 3 });
+  h.closeTab(22);
+  const status = h.dispatch({ type: "GET_STATUS" });
+  assert.equal(status.rightPaired, false, "closed tab unpairs the side");
+  assert.equal(status.leftPaired, true);
+  assert.equal(status.slots.RIGHT.adapter, "chatgpt", "the AI choice is kept for re-pairing");
+  const pauses = h.posted.filter((m) => m.type === "PAUSE");
+  assert.equal(pauses.length, 1);
+  assert.match(pauses[0].reason, /RIGHT \(ChatGPT\) tab was closed/);
+  assert.match(pauses[0].reason, /press Resume/);
+
+  // A send to the now-unpaired side reports a plain error to the mediator.
+  h.fromMediator({ type: "SUBMIT_MESSAGE", destination: "RIGHT", text: "hello", message_id: "SIDERA-9" });
+  const errors = h.posted.filter((m) => m.type === "INJECTION_ERROR");
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].hemisphere, "RIGHT");
+  assert.match(errors[0].error, /No tab is paired as RIGHT/);
+
+  // onReplaced behaves like a close for the old tab id.
+  h.replaceTab(11, 44, "https://chatgpt.com/c/a");
+  assert.equal(h.dispatch({ type: "GET_STATUS" }).leftPaired, false);
+}
+
+// Audit N3: closing a paired tab during the opening handshake (mediator
+// still IDLE) also pauses, and asks for Start again; after the handshake an
+// IDLE mediator does not.
+{
+  const h = makeHarness();
+  h.addTab(11, "https://chatgpt.com/c/a");
+  h.addTab(22, "https://grok.com/");
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 11 }).success, true);
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "RIGHT", adapterType: "grok", tabId: 22 }).success, true);
+  h.fromMediator({ type: "STATE_UPDATE", state: "IDLE", genesis_active: false });
+  h.fromMediator({ type: "GENESIS_TEXT", text: "protocol" });
+  h.closeTab(11);
+  const pauses = h.posted.filter((m) => m.type === "PAUSE");
+  assert.equal(pauses.length, 1, "a tab lost during the handshake pauses");
+  assert.match(pauses[0].reason, /LEFT \(ChatGPT\) tab was closed while Sidera was teaching the protocol/);
+  assert.match(pauses[0].reason, /press Start again/);
+
+  // The mediator's flag is authoritative: once it reports the handshake over,
+  // an IDLE mediator is not paused by a closed tab.
+  h.fromMediator({ type: "STATUS_RESPONSE", state: "IDLE", genesis_active: false });
+  h.closeTab(22);
+  assert.equal(h.posted.filter((m) => m.type === "PAUSE").length, 1, "no pause when nothing is running");
+}
+
+// The chosen AI must match the site the tab is on; the legacy active-tab path
+// infers the site from the tab instead of defaulting blindly.
+{
+  const h = makeHarness();
+  h.addTab(51, "https://gemini.google.com/app", true);
+  const mismatch = h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 51 });
+  assert.equal(mismatch.success, false);
+  assert.match(mismatch.error, /on Gemini, not ChatGPT/);
+
+  const legacy = h.dispatch({ type: "PAIR_TAB", side: "LEFT" });
+  assert.equal(legacy.success, true);
+  assert.equal(legacy.adapterType, "gemini", "legacy pairing reads the site from the tab");
+
+  h.addTab(52, "https://example.com/", true);
+  h.removeTab(51);
+  const unsupported = h.dispatch({ type: "PAIR_TAB", side: "RIGHT", tabId: 52 });
+  assert.equal(unsupported.success, false);
+  assert.match(unsupported.error, /not on a supported site/);
+}
+
+// A paired tab that navigates to a DIFFERENT supported site is unpaired (and
+// a running exchange pauses); a reload on the same site just re-pairs.
+{
+  const h = makeHarness();
+  h.addTab(11, "https://chatgpt.com/c/a");
+  h.addTab(22, "https://chatgpt.com/c/b");
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 11 }).success, true);
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "RIGHT", adapterType: "chatgpt", tabId: 22 }).success, true);
+  h.fromMediator({ type: "STATE_UPDATE", state: "WAIT_LEFT" });
+
+  h.removeTab(11);
+  h.addTab(11, "https://grok.com/");
+  h.tabNavigated(11);
+  const status = h.dispatch({ type: "GET_STATUS" });
+  assert.equal(status.leftPaired, false, "a side cannot silently become another AI");
+  const pauses = h.posted.filter((m) => m.type === "PAUSE");
+  assert.equal(pauses.length, 1);
+  assert.match(pauses[0].reason, /moved from ChatGPT to Grok/);
+}
+
+// The AI choices survive a browser restart through storage.local; the tab
+// pairings do not (those tabs are gone).
+{
+  const store = {};
+  const h = makeHarness({ localStore: store });
+  h.addTab(61, "https://grok.com/");
+  h.addTab(62, "https://gemini.google.com/app");
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "grok", tabId: 61 }).success, true);
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "RIGHT", adapterType: "gemini", tabId: 62 }).success, true);
+  assert.deepEqual(plain(store.adapterChoices), { LEFT: "grok", RIGHT: "gemini" });
+
+  // "Restart": a new background with the same local store and no session.
+  const h2 = makeHarness({ localStore: plain(store) });
+  const status = h2.dispatch({ type: "GET_STATUS" });
+  assert.equal(status.slots.LEFT.adapter, "grok");
+  assert.equal(status.slots.RIGHT.adapter, "gemini");
+  assert.equal(status.leftPaired, false);
+  assert.equal(status.rightPaired, false);
+}
+
+// Manual forward failures use plain wording, never Chrome's internal errors.
+{
+  const h = makeHarness();
+  h.addTab(11, "https://chatgpt.com/");
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 11 }).success, true);
+  h.setTabResponder((tabId, msg) => (msg.type === "GET_LATEST_MESSAGE" ? { __error: "Could not establish connection. Receiving end does not exist." } : undefined));
+  const resp = h.dispatch({ type: "MANUAL_FORWARD", source: "LEFT" });
+  assert.equal(resp.ok, false);
+  assert.ok(!/Receiving end/i.test(resp.error), "raw chrome error is not shown");
+  assert.match(resp.error, /Reload the tab/);
 }
 
 console.log("background routing ok");
