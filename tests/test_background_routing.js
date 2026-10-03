@@ -323,6 +323,14 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
   assert.equal(confirms[0].destination, "RIGHT");
   h.dispatch({ type: "INJECTION_ERROR", hemisphere: "RIGHT", message_id: "SIDERA-2", error: "x" }, 11);
   assert.equal(h.posted.filter((m) => m.type === "INJECTION_ERROR").length, 0, "stray injection error dropped");
+
+  // Streaming progress follows the same rule: relabelled from the registry,
+  // dropped from a stray tab.
+  h.dispatch({ type: "REPLY_PROGRESS", hemisphere: "LEFT", chars: 500 }, 22);
+  h.dispatch({ type: "REPLY_PROGRESS", hemisphere: "LEFT", chars: 500 }, 11);
+  const progress = h.posted.filter((m) => m.type === "REPLY_PROGRESS");
+  assert.equal(progress.length, 1, "stray progress dropped");
+  assert.equal(progress[0].hemisphere, "RIGHT");
 }
 
 // MEDIUM (audit): pairing requires the tab to acknowledge. A tab with no

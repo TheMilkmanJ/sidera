@@ -677,7 +677,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     forgetLoginSecret();
     signInMessage = null;
     sendToMediator({ type: "STOP" });
-  } else if (reqType === "RESPONSE_CAPTURED" || reqType === "SUBMISSION_CONFIRMED" || reqType === "INJECTION_ERROR" || reqType === "SUBMISSION_STALLED") {
+  } else if (reqType === "RESPONSE_CAPTURED" || reqType === "SUBMISSION_CONFIRMED" || reqType === "INJECTION_ERROR" || reqType === "SUBMISSION_STALLED" || reqType === "REPLY_PROGRESS") {
     // Only the currently paired tabs may speak for a side, and the side label
     // comes from the registry, not from the page. A stray tab (re-paired away
     // or never paired) is told to stand down and its message is dropped, so a

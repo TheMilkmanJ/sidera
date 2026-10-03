@@ -97,6 +97,33 @@ function makeContext() {
     t.ctx.__sideraHeartbeat();
   }
   assert.strictEqual(t.site.stops, 0);
+  // Growing text is reported as progress so the mediator's idle watchdog
+  // never pauses a long but healthy reply.
+  const progress = t.sent.filter((m) => m.type === "REPLY_PROGRESS");
+  assert.ok(progress.length >= 9, `progress reported while streaming (${progress.length})`);
+  assert.ok(progress.every((m) => m.hemisphere === "LEFT"));
+}
+
+// A spinner with no new text is not progress, and progress is throttled.
+{
+  const t = makeContext();
+  t.ctx.__in({ type: "ASSIGN_HEMISPHERE", hemisphere: "RIGHT" }, {}, () => {});
+  t.ctx.__in({ type: "INJECT_AND_SUBMIT", text: "q", message_id: "SIDERA-0000009" }, {}, () => {});
+  t.flushTimers();
+  t.site.generating = true;
+  t.site.latest = "first words";
+  t.ctx.__sideraHeartbeat();
+  for (let i = 0; i < 5; i++) {
+    t.advance(30 * 1000);
+    t.ctx.__sideraHeartbeat();
+  }
+  assert.strictEqual(t.sent.filter((m) => m.type === "REPLY_PROGRESS").length, 0, "no new text, no progress");
+  for (let i = 0; i < 20; i++) {
+    t.site.latest += " more";
+    t.advance(1000);
+    t.ctx.__sideraHeartbeat();
+  }
+  assert.strictEqual(t.sent.filter((m) => m.type === "REPLY_PROGRESS").length, 1, "at most one progress ping a minute");
 }
 
 // Finished reply is captured by the heartbeat once the page is quiet.

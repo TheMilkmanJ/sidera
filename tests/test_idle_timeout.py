@@ -44,6 +44,18 @@ class TestIdleTimeout(unittest.TestCase):
     def test_waiting_side_times_out_with_plain_reason(self):
         self.service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
         self.assertEqual(self.service.state_machine.state, MediatorState.WAIT_LEFT)
+        # One full exchange first, so this is a wait on a real reply.
+        self.service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "Opening."})
+        self.service.handle_message({
+            "type": "SUBMISSION_CONFIRMED", "destination": "RIGHT",
+            "message_id": self.service.state_machine.current_message_id,
+        })
+        self.service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "Answer."})
+        self.service.handle_message({
+            "type": "SUBMISSION_CONFIRMED", "destination": "LEFT",
+            "message_id": self.service.state_machine.current_message_id,
+        })
+        self.assertEqual(self.service.state_machine.state, MediatorState.WAIT_LEFT)
 
         self.assertFalse(self.service.check_idle(now=self._idle_after(19)), "not idle before the timeout")
         self.assertEqual(self.service.state_machine.state, MediatorState.WAIT_LEFT)
@@ -103,6 +115,44 @@ class TestIdleTimeout(unittest.TestCase):
         self.assertIsNone(service.genesis_target, "the stalled handshake is abandoned")
         self.assertEqual(service.genesis_pending, [])
         self.assertIn("press Start again", service.state_machine.last_error)
+
+    def test_waiting_for_the_opening_message_is_worded_for_the_operator(self):
+        # Audit N2: before any message, the wait is for the operator's opening
+        # prompt; "the site may have changed" would be misleading.
+        self.service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        self.assertTrue(self.service.check_idle(now=self._idle_after(21)))
+        reason = self.service.state_machine.last_error
+        self.assertIn("opening message in the LEFT tab", reason)
+        self.assertNotIn("site may have changed", reason)
+        self.assertIn("press Resume", reason)
+
+    def test_streaming_text_resets_the_clock(self):
+        # Audit N2: a long reply that keeps producing text is not idleness.
+        self.service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        self.service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "A finished reply."})
+        self.service.handle_message({
+            "type": "SUBMISSION_CONFIRMED", "destination": "RIGHT",
+            "message_id": self.service.state_machine.current_message_id,
+        })
+        self.assertEqual(self.service.state_machine.state, MediatorState.WAIT_RIGHT)
+        start = self.service._last_activity
+        import mediator.main as main_module
+        real_monotonic = main_module.time.monotonic
+        try:
+            main_module.time.monotonic = lambda: start + 15 * 60
+            self.service.handle_message({"type": "REPLY_PROGRESS", "hemisphere": "RIGHT", "chars": 9000})
+        finally:
+            main_module.time.monotonic = real_monotonic
+        self.assertEqual(self.service._last_activity, start + 15 * 60)
+        self.assertFalse(self.service.check_idle(now=start + 30 * 60), "a reply still streaming is not stuck")
+        self.assertEqual(self.service.state_machine.state, MediatorState.WAIT_RIGHT)
+        self.assertTrue(self.service.check_idle(now=start + 36 * 60), "the watchdog still fires once text stops")
+
+    def test_progress_from_the_other_side_does_not_hold_the_clock(self):
+        self.service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        before = self.service._last_activity
+        self.service.handle_message({"type": "REPLY_PROGRESS", "hemisphere": "RIGHT", "chars": 10})
+        self.assertEqual(self.service._last_activity, before)
 
     def test_pause_during_genesis_is_not_overridden_by_the_watchdog(self):
         # Audit N1: Pause pressed during the opening handshake must not be

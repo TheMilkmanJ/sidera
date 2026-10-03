@@ -550,6 +550,21 @@ class MediatorService:
                 logger.info("Processing the reply from %s that arrived while paused", held.get("source"))
                 self.handle_message(held)
 
+        elif msg_type == "REPLY_PROGRESS":
+            # A reply is still streaming in that tab: progress, not idleness.
+            # Only the side Sidera is waiting on can hold the clock open.
+            side = (packet.get("hemisphere") or "").upper()
+            state = self.state_machine.state
+            waiting_on = (
+                (state == MediatorState.WAIT_LEFT and side == "LEFT")
+                or (state == MediatorState.WAIT_RIGHT and side == "RIGHT")
+                or (state == MediatorState.SEND_LEFT and side == "LEFT")
+                or (state == MediatorState.SEND_RIGHT and side == "RIGHT")
+                or (self.genesis_target is not None and side == self.genesis_target)
+            )
+            if waiting_on:
+                self._last_activity = time.monotonic()
+
         elif msg_type == "SUBMISSION_STALLED":
             # The site would not accept the paste (for example Gemini's
             # "Something went wrong" after a usage limit). Pause with the
@@ -884,11 +899,20 @@ class MediatorService:
         state = self.state_machine.state
         if state in (MediatorState.WAIT_LEFT, MediatorState.WAIT_RIGHT):
             side = "LEFT" if state == MediatorState.WAIT_LEFT else "RIGHT"
-            reason = (
-                f"No reply has been detected from {side} for about {minutes} minutes. "
-                f"That tab may be stuck or signed out, or the site may have changed its page. "
-                f"Check the {side} tab, then press Resume."
-            )
+            if self.ledger.get_last_message(self.conversation_id) is None:
+                # Nothing has been exchanged yet: Sidera is waiting for the
+                # operator's opening message, not for a stuck site.
+                reason = (
+                    f"Sidera has been waiting about {minutes} minutes for the opening message in the {side} tab. "
+                    f"Type it there and send it, then press Resume. "
+                    f"If you already sent it and {side} answered, check the {side} tab is still signed in, then press Resume."
+                )
+            else:
+                reason = (
+                    f"No reply has been detected from {side} for about {minutes} minutes, and no new text has "
+                    f"appeared there. That tab may be stuck or signed out, or the site may have changed its page. "
+                    f"Check the {side} tab, then press Resume."
+                )
         elif state in (MediatorState.SEND_LEFT, MediatorState.SEND_RIGHT):
             side = "LEFT" if state == MediatorState.SEND_LEFT else "RIGHT"
             reason = (
