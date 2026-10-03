@@ -51,6 +51,17 @@ class TestStateMachine(unittest.TestCase):
         self.sm.stop()
         self.assertEqual(self.sm.state, MediatorState.IDLE)
 
+    def test_resume_recovers_from_error(self):
+        # An injection error (dead tab) must not strand the session: after the
+        # operator re-pairs, Resume returns to the pre-error state.
+        self.sm.start("LEFT")
+        self.sm.state = MediatorState.SEND_RIGHT
+        self.sm.error("The RIGHT (ChatGPT) tab is not responding.")
+        self.assertEqual(self.sm.state, MediatorState.ERROR)
+        self.sm.resume()
+        self.assertEqual(self.sm.state, MediatorState.SEND_RIGHT)
+        self.assertIsNone(self.sm.last_error)
+
     def test_same_adapter_on_both_slots_routes_by_slot(self):
         # ChatGPT vs ChatGPT in two separate tabs: each slot keeps its own
         # tab id and the turn sequence still alternates LEFT <-> RIGHT.

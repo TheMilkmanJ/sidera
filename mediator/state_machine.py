@@ -137,10 +137,14 @@ class StateMachine:
         self._transition(MediatorState.PAUSED, {"reason": reason})
 
     def resume(self):
-        if self.state != MediatorState.PAUSED:
+        # Resume also recovers from ERROR (for example after the operator
+        # re-pairs a closed tab); the pre-error state is restored so a pending
+        # send can be pasted again.
+        if self.state not in (MediatorState.PAUSED, MediatorState.ERROR):
             return
         target_state = self.paused_previous_state or MediatorState.IDLE
         self.paused_previous_state = None
+        self.last_error = None
         self._transition(target_state, {"action": "RESUME"})
 
     def stop(self):
@@ -148,5 +152,7 @@ class StateMachine:
         self._transition(MediatorState.IDLE, {"action": "STOP"})
 
     def error(self, err_msg: str):
+        if self.state not in (MediatorState.ERROR, MediatorState.PAUSED):
+            self.paused_previous_state = self.state
         self.last_error = err_msg
         self._transition(MediatorState.ERROR, {"error": err_msg})

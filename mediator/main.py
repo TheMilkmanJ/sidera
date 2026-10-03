@@ -8,6 +8,8 @@ import json
 import logging
 import os
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -49,12 +51,22 @@ class MediatorService:
         genesis_enabled: Optional[bool] = None,
         config: Optional[MediatorConfig] = None,
         autonomous_submissions: Optional[bool] = None,
+        idle_timeout_minutes: Optional[float] = None,
     ):
         self.config = config or load_config()
         self.root_dir = (root_dir or self.config.data_root).resolve()
         self.root_dir.mkdir(parents=True, exist_ok=True)
         if max_turns is None:
             max_turns = self.config.max_autonomous_turns
+        # Pause with a plain explanation when nothing is detected for this
+        # long while waiting on a side (spec 11.2: configurable timeouts; a
+        # safe pause, never blind automation). 0 disables it.
+        self.idle_timeout_minutes = (
+            self.config.idle_timeout_minutes if idle_timeout_minutes is None else idle_timeout_minutes
+        )
+        self._last_activity = time.monotonic()
+        self._service_lock = threading.RLock()
+        self._stop_watchdog = threading.Event()
         # False = monitor and log only; nothing is pasted into either chat.
         self.autonomous_submissions = (
             self.config.autonomous_submissions if autonomous_submissions is None else autonomous_submissions
@@ -155,6 +167,8 @@ class MediatorService:
             handle.write(text)
 
     def _broadcast_state_change(self, state: MediatorState, context: Dict[str, Any]):
+        # Every transition counts as progress for the idle watchdog.
+        self._last_activity = time.monotonic()
         logger.info(
             "STATUS turn=%s/%s state=%s message=%s error=%s context=%s",
             self.state_machine.turn_count,
@@ -230,6 +244,7 @@ class MediatorService:
             self.state_machine.start(self.genesis_initial_side)
             return
         self.genesis_target = self.genesis_pending.pop(0)
+        self._last_activity = time.monotonic()
         logger.info("GENESIS sent to %s", self.genesis_target)
         self._write_transcript_line(f"- **Genesis:** sent to `{self.genesis_target}`\n")
         self.ipc.send_message({
@@ -532,6 +547,8 @@ class MediatorService:
             if hemisphere not in ("LEFT", "RIGHT"):
                 logger.warning("CONTEXT_REQUEST ignored: hemisphere=%r", packet.get("hemisphere"))
                 return
+            # A side rebuilding its chat is progress, not idleness.
+            self._last_activity = time.monotonic()
             brief = self.build_context_brief(hemisphere)
             memories = self.memory.read_memory(limit=self.BRIEF_MAX_MEMORIES)
             recent = self.ledger.get_recent_messages(self.conversation_id, limit=self.BRIEF_MAX_TURNS)
@@ -774,18 +791,84 @@ class MediatorService:
             self._append_transcript(record, clean_text, operations)
             self._submit(dest, record["message_id"], self._attach_system_blocks(dest, clean_text))
 
+    # --- idle watchdog (spec 11.2, acceptance test 12) -------------------------------
+
+    def check_idle(self, now: Optional[float] = None) -> bool:
+        """Pause with a plain explanation when reply detection has gone quiet.
+
+        Covers a broken assistant-message selector, a stuck tab, or a lost
+        confirmation: situations where nothing arrives and, without this, the
+        mediator would wait forever with no operator notice. Returns True when
+        it paused.
+        """
+        timeout_minutes = self.idle_timeout_minutes
+        if not timeout_minutes or timeout_minutes <= 0:
+            return False
+        now = time.monotonic() if now is None else now
+        idle_seconds = now - self._last_activity
+        if idle_seconds < timeout_minutes * 60:
+            return False
+        minutes = max(1, int(round(idle_seconds / 60)))
+
+        if self.genesis_target is not None:
+            side = self.genesis_target
+            self.genesis_pending = []
+            self.genesis_target = None
+            logger.warning("IDLE_TIMEOUT during GENESIS target=%s seconds=%s", side, int(idle_seconds))
+            self._write_transcript_line(f"- **Idle timeout:** no READY from `{side}` after {minutes} minutes\n")
+            self.state_machine.pause(
+                f"The {side} tab has not answered the protocol message for about {minutes} minutes. "
+                f"Check that tab is signed in and responding, then press Start again."
+            )
+            return True
+
+        state = self.state_machine.state
+        if state in (MediatorState.WAIT_LEFT, MediatorState.WAIT_RIGHT):
+            side = "LEFT" if state == MediatorState.WAIT_LEFT else "RIGHT"
+            reason = (
+                f"No reply has been detected from {side} for about {minutes} minutes. "
+                f"That tab may be stuck or signed out, or the site may have changed its page. "
+                f"Check the {side} tab, then press Resume."
+            )
+        elif state in (MediatorState.SEND_LEFT, MediatorState.SEND_RIGHT):
+            side = "LEFT" if state == MediatorState.SEND_LEFT else "RIGHT"
+            reason = (
+                f"The message pasted into {side} has not been confirmed for about {minutes} minutes. "
+                f"Check the {side} tab, then press Resume; the message will be pasted again."
+            )
+        else:
+            return False
+        logger.warning("IDLE_TIMEOUT state=%s seconds=%s", state.value, int(idle_seconds))
+        self._write_transcript_line(f"- **Idle timeout:** `{state.value}` quiet for {minutes} minutes\n")
+        self.state_machine.pause(reason)
+        return True
+
+    def _watchdog_loop(self):
+        while not self._stop_watchdog.wait(10):
+            try:
+                with self._service_lock:
+                    self.check_idle()
+            except Exception as err:  # the watchdog must never kill the service
+                logger.error("Idle watchdog error: %s", err)
+
     def run(self):
         logger.info("Sidera Native Messaging loop started.")
-        while True:
-            packet = self.ipc.read_message()
-            if packet is None:
-                logger.info("Chrome IPC disconnected or EOF reached. Terminating service.")
-                break
-            try:
-                self.handle_message(packet)
-            except Exception as e:
-                logger.exception(f"Unhandled error in message processing: {e}")
-                self.state_machine.error(str(e))
+        if self.idle_timeout_minutes and self.idle_timeout_minutes > 0:
+            threading.Thread(target=self._watchdog_loop, name="sidera-idle-watchdog", daemon=True).start()
+        try:
+            while True:
+                packet = self.ipc.read_message()
+                if packet is None:
+                    logger.info("Chrome IPC disconnected or EOF reached. Terminating service.")
+                    break
+                try:
+                    with self._service_lock:
+                        self.handle_message(packet)
+                except Exception as e:
+                    logger.exception(f"Unhandled error in message processing: {e}")
+                    self.state_machine.error(str(e))
+        finally:
+            self._stop_watchdog.set()
 
 if __name__ == "__main__":
     service = MediatorService()

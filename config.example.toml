@@ -24,6 +24,13 @@ rotate_after_pastes = 50
 # chat. Use this to observe the browsers safely or to test a new adapter.
 autonomous_submissions = true
 
+# If no reply or confirmation is detected for this many minutes while the
+# mediator is waiting on a side, it pauses with a plain explanation instead of
+# waiting forever (for example after a site changes its page layout). A slow
+# model is not mistaken for a finished one: the timer is generous and only a
+# pause results, never a blind retry. 0 disables the idle timeout.
+idle_timeout_minutes = 20
+
 [genesis]
 # Teach both AIs the Sidera tag protocol when Start is pressed (and again in
 # any fresh chat a side has to open). Set to false to skip the handshake and
