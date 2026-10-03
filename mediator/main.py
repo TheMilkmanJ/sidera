@@ -89,6 +89,8 @@ class MediatorService:
         # A reply that arrives while paused is kept and processed on Resume, so
         # "pause after the current turn" never loses that turn.
         self.held_reply: Optional[Dict[str, Any]] = None
+        # Set while a reply's tags are being executed (see _resume_pending_step).
+        self._executing_message_id: Optional[str] = None
 
         setup_logging(self.root_dir / "logs")
         logger.info(f"Initializing Sidera Mediator Service at {self.root_dir}")
@@ -310,6 +312,47 @@ class MediatorService:
         logger.info("Resuming: pasting %s into %s again", message_id, dest)
         self._submit(dest, message_id, self._attach_system_blocks(dest, text))
 
+    def _resume_pending_step(self):
+        """After Resume from an error taken mid-processing, move the exchange on.
+
+        An unexpected error while a captured reply was being processed leaves
+        the restored state at LEFT/RIGHT_COMPLETE or PROCESS, which nothing
+        else ever advances. Finish the step instead of stalling silently.
+        """
+        state = self.state_machine.state
+        if state not in (MediatorState.LEFT_COMPLETE, MediatorState.RIGHT_COMPLETE, MediatorState.PROCESS):
+            return
+        message_id = self.state_machine.current_message_id
+        record = self.ledger.get_message(message_id) if message_id else None
+        if not record:
+            self.state_machine.pause(
+                "Sidera lost track of the last reply after an error. "
+                "Use Manual forward to send the latest reply on, or press STOP."
+            )
+            return
+        source = str(record.get("source") or "").upper()
+        dest = str(record.get("destination") or self.state_machine.get_next_slot(source)).upper()
+        self.state_machine.start_processing()
+        if self._executing_message_id == message_id:
+            # The error hit while this reply's tags were running; running them
+            # again could save a memory or file twice.
+            self._executing_message_id = None
+            self.state_machine.pause(
+                f"Sidera stopped while handling the {source} reply {message_id}, part-way through its "
+                f"Sidera tags. Check the data folder, then use Manual forward {source} → {dest} to send it on, "
+                f"or press STOP."
+            )
+            return
+        logger.info("Resuming: finishing the processing of %s from %s", message_id, source)
+        if record.get("status") == "PROCESSED":
+            # Tags already ran; only the hand-off to the other side is left.
+            clean_text = record.get("clean_content") or ""
+            self.state_machine.prepare_send(dest)
+            if self.state_machine.state in (MediatorState.SEND_LEFT, MediatorState.SEND_RIGHT):
+                self._submit(dest, message_id, self._attach_system_blocks(dest, clean_text))
+            return
+        self._process_captured(record, source, dest, record.get("content") or "")
+
     # --- catch-up brief for a fresh chat --------------------------------------------
 
     BRIEF_MAX_MEMORIES = 15
@@ -501,6 +544,7 @@ class MediatorService:
         elif msg_type == "RESUME":
             self.state_machine.resume()
             self._resend_pending_after_resume()
+            self._resume_pending_step()
             if self.held_reply and self.state_machine.state in (MediatorState.WAIT_LEFT, MediatorState.WAIT_RIGHT):
                 held, self.held_reply = self.held_reply, None
                 logger.info("Processing the reply from %s that arrived while paused", held.get("source"))
@@ -661,67 +705,7 @@ class MediatorService:
 
             self.state_machine.handle_response_captured(source, record["message_id"])
             self.state_machine.start_processing()
-
-            clean_text, operations, errors = self.tag_parser.parse(raw_content)
-            system_injections: List[str] = []
-            for tag_error in errors:
-                # Fail closed: log it, execute nothing for it, tell the requester.
-                logger.error("TAG_ERROR message=%s detail=%s", record["message_id"], tag_error)
-                self._write_transcript_line(
-                    f"- **Error signal:** `TAG_ERROR` message=`{record['message_id']}` detail=`{tag_error}`\n"
-                )
-                system_injections.append(f"[SIDERA SYSTEM ERROR: {tag_error}; the tag was not executed]")
-
-            if self.ledger.operations_recorded(record["message_id"]):
-                # Already executed before a crash/restart; never run writes twice.
-                logger.warning("Tag operations for %s were already executed; not repeating them", record["message_id"])
-                controls = {"pause": False, "stop": False, "reason": None}
-            else:
-                results, controls = self.tag_parser.execute_operations(
-                    operations=operations,
-                    memory_store=self.memory,
-                    file_sandbox=self.sandbox,
-                    source=source,
-                    parent_message_id=record["message_id"],
-                )
-                system_injections.extend(results)
-                for index, op in enumerate(operations):
-                    attrs = op.get("attributes", {})
-                    self.ledger.record_operation(
-                        record["message_id"], index, op["type"], attrs.get("path") or attrs.get("category"), "EXECUTED"
-                    )
-
-            # Read/recall results (and tag errors) go back to the side that asked,
-            # attached to the next message pasted into it (spec 8.5). The other
-            # side receives only the conversational text.
-            if system_injections:
-                self.pending_system_blocks[source].extend(system_injections)
-                logger.info("Queued %s Sidera system block(s) for %s", len(system_injections), source)
-            outbound_text = self._attach_system_blocks(dest, clean_text)
-
-            self.ledger.update_status(record["message_id"], "PROCESSED", clean_content=clean_text)
-
-            if controls.get("stop"):
-                self._append_transcript(record, clean_text, operations)
-                self.state_machine.stop()
-                return
-            elif controls.get("pause"):
-                self._append_transcript(record, clean_text, operations)
-                self.state_machine.pause(controls.get("reason", "Control tag requested pause"))
-                return
-
-            self.state_machine.prepare_send(dest)
-            self._append_transcript(record, clean_text, operations)
-            if self.state_machine.state == MediatorState.PAUSED:
-                if self.state_machine.last_error and "Max autonomous turns" in self.state_machine.last_error:
-                    logger.warning(
-                        "BURN_IN_LIMIT_REACHED turns=%s/%s",
-                        self.state_machine.turn_count,
-                        self.state_machine.max_autonomous_turns,
-                    )
-                return
-
-            self._submit(dest, record["message_id"], outbound_text)
+            self._process_captured(record, source, dest, raw_content)
 
         elif msg_type == "SUBMISSION_CONFIRMED":
             dest = packet.get("destination", "").upper()
@@ -790,6 +774,74 @@ class MediatorService:
             self._write_transcript_line(f"- **Manual forward:** `{source}` -> `{dest}` as `{record['message_id']}`\n")
             self._append_transcript(record, clean_text, operations)
             self._submit(dest, record["message_id"], self._attach_system_blocks(dest, clean_text))
+
+    def _process_captured(self, record: Dict[str, Any], source: str, dest: str, raw_content: str):
+        """Tags, ledger and hand-off for a captured reply (state PROCESS)."""
+
+        clean_text, operations, errors = self.tag_parser.parse(raw_content)
+        system_injections: List[str] = []
+        for tag_error in errors:
+            # Fail closed: log it, execute nothing for it, tell the requester.
+            logger.error("TAG_ERROR message=%s detail=%s", record["message_id"], tag_error)
+            self._write_transcript_line(
+                f"- **Error signal:** `TAG_ERROR` message=`{record['message_id']}` detail=`{tag_error}`\n"
+            )
+            system_injections.append(f"[SIDERA SYSTEM ERROR: {tag_error}; the tag was not executed]")
+
+        if self.ledger.operations_recorded(record["message_id"]):
+            # Already executed before a crash/restart; never run writes twice.
+            logger.warning("Tag operations for %s were already executed; not repeating them", record["message_id"])
+            controls = {"pause": False, "stop": False, "reason": None}
+        else:
+            # Marked while tags run: if something fails half-way, Resume must
+            # not run the same writes a second time.
+            self._executing_message_id = record["message_id"]
+            results, controls = self.tag_parser.execute_operations(
+                operations=operations,
+                memory_store=self.memory,
+                file_sandbox=self.sandbox,
+                source=source,
+                parent_message_id=record["message_id"],
+            )
+            system_injections.extend(results)
+            for index, op in enumerate(operations):
+                attrs = op.get("attributes", {})
+                self.ledger.record_operation(
+                    record["message_id"], index, op["type"], attrs.get("path") or attrs.get("category"), "EXECUTED"
+                )
+            self._executing_message_id = None
+
+        # Read/recall results (and tag errors) go back to the side that asked,
+        # attached to the next message pasted into it (spec 8.5). The other
+        # side receives only the conversational text.
+        if system_injections:
+            self.pending_system_blocks[source].extend(system_injections)
+            logger.info("Queued %s Sidera system block(s) for %s", len(system_injections), source)
+        outbound_text = self._attach_system_blocks(dest, clean_text)
+
+        self.ledger.update_status(record["message_id"], "PROCESSED", clean_content=clean_text)
+
+        if controls.get("stop"):
+            self._append_transcript(record, clean_text, operations)
+            self.state_machine.stop()
+            return
+        elif controls.get("pause"):
+            self._append_transcript(record, clean_text, operations)
+            self.state_machine.pause(controls.get("reason", "Control tag requested pause"))
+            return
+
+        self.state_machine.prepare_send(dest)
+        self._append_transcript(record, clean_text, operations)
+        if self.state_machine.state == MediatorState.PAUSED:
+            if self.state_machine.last_error and "Max autonomous turns" in self.state_machine.last_error:
+                logger.warning(
+                    "BURN_IN_LIMIT_REACHED turns=%s/%s",
+                    self.state_machine.turn_count,
+                    self.state_machine.max_autonomous_turns,
+                )
+            return
+
+        self._submit(dest, record["message_id"], outbound_text)
 
     # --- idle watchdog (spec 11.2, acceptance test 12) -------------------------------
 
