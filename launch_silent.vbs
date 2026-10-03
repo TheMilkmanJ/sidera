@@ -1,8 +1,12 @@
 Option Explicit
 ' Windowless launcher. wscript.exe //B shows no console.
-' Opens ChatGPT and Grok in the default browser when that browser can
-' load the Sidera extension (Chrome, Edge, Brave, Vivaldi, Opera, or Chromium),
-' with the extension already loaded. Firefox and other non-Chromium defaults
+' Opens ChatGPT and Grok, each in its own window, in the default browser when
+' that browser can host the Sidera extension (Chrome, Edge, Brave, Vivaldi,
+' Opera, or Chromium). It does NOT load the extension into Google Chrome:
+' Chrome 137+ ignores --load-extension, so on Chrome the extension is loaded
+' once by hand (Load unpacked, see docs/INSTALL.html) and then stays loaded.
+' Edge, Brave, Vivaldi, Opera and Chromium still pick it up from the flag
+' passed below. Firefox and other non-Chromium defaults
 ' cannot host the extension; a supported browser already on the machine is
 ' opened instead, and a short notice says which one.
 Dim shell, fso, installRoot, extensionDir, manifestPath
