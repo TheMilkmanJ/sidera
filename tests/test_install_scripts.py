@@ -129,6 +129,7 @@ class TestInstallScripts(unittest.TestCase):
         # The manifest key pins the ID; it does not change with the folder.
         self.assertNotIn("different ID and will", text)
         self.assertNotIn("produces a different ID", text)
+        self.assertNotIn("different ID", text, "no troubleshooting tip about a changed ID either")
         self.assertIn("same whichever folder", text)
 
     def test_installer_opens_the_html_guide(self):

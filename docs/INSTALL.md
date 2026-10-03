@@ -123,10 +123,6 @@ program has not been started yet: double-click the **Sidera Mediator** icon.
   unreadable".** The wrong folder was picked. Repeat step 3 and choose
   `C:\Sidera\chrome-extension` itself — the folder that directly contains
   `manifest.json` — not `C:\Sidera` and not a folder inside `chrome-extension`.
-- **The card shows a different ID from `pekgjaanmdkkpclhlobpcggibbkgjbgd`.**
-  The folder that was loaded is not the Sidera extension folder. Click
-  **Remove** on that card and load `C:\Sidera\chrome-extension` instead. Run
-  `INSTALL.bat` first if that folder does not exist.
 - **It was loaded from the downloaded folder instead of `C:\Sidera`.** It
   works (the ID is the same), but later updates installed with `INSTALL.bat`
   will not reach Chrome. Click **Remove** on the card and load
