@@ -64,6 +64,61 @@ class TestInstallScripts(unittest.TestCase):
         for doc in ("tag_protocol.md", "data_schema.md", "maintenance_selectors.md", "uninstall_and_disable.md", "third_party.md"):
             self.assertTrue((ROOT / "docs" / doc).exists(), doc)
 
+    def test_python_path_refresh_avoids_reboot(self):
+        # winget updates the registry PATH, not the running session; the
+        # installer must refresh it so the install finishes in one go.
+        ps1 = (ROOT / "setup_prerequisites.ps1").read_text(encoding="utf-8")
+        self.assertIn("function Update-SessionPath", ps1)
+        self.assertIn('GetEnvironmentVariable("Path", "Machine")', ps1)
+        self.assertIn('GetEnvironmentVariable("Path", "User")', ps1)
+        winget = ps1.index("winget install")
+        refresh = ps1.index("Update-SessionPath", winget)
+        retry = ps1.index("Find-SideraPython", winget)
+        self.assertLess(refresh, retry, "PATH is refreshed before Python is looked up again")
+
+    def test_chrome_setup_is_documented_honestly(self):
+        # Branded Chrome 137+ ignores --load-extension, so the docs must not
+        # claim automatic loading, and the Load-unpacked walkthrough must
+        # exist with every screenshot it references.
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertNotIn("nothing needs to be loaded by hand", readme)
+        self.assertIn("Load unpacked", readme)
+        self.assertIn("docs/INSTALL.md", readme)
+
+        vbs = (ROOT / "launch_silent.vbs").read_text(encoding="utf-8")
+        self.assertIn("Chrome 137", vbs, "the launcher says why the flag is only a fallback")
+        self.assertIn("docs/INSTALL.md", vbs)
+        self.assertEqual(vbs.count("--new-window"), 2, "each side opens in its own window")
+
+        install_doc = ROOT / "docs" / "INSTALL.md"
+        self.assertTrue(install_doc.exists())
+        text = install_doc.read_text(encoding="utf-8")
+        self.assertIn("chrome://extensions", text)
+        self.assertIn("C:\\Sidera\\chrome-extension", text)
+        self.assertIn("pekgjaanmdkkpclhlobpcggibbkgjbgd", text)
+        self.assertIn("If it doesn't show up", text)
+        import re
+        images = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", text)
+        self.assertGreaterEqual(len(images), 5, "a screenshot per step")
+        for image in images:
+            self.assertTrue((install_doc.parent / image).exists(), f"missing screenshot {image}")
+            self.assertNotIn("pending", image.lower())
+
+    def test_tech_rundown_is_current(self):
+        rundown = (ROOT / "docs" / "TECH-RUNDOWN-for-Taylor.md").read_text(encoding="utf-8")
+        self.assertIn("native messaging", rundown)
+        self.assertNotIn("8765", rundown, "the WebSocket port claim is stale")
+        self.assertNotIn("WebSocket on 127", rundown)
+        self.assertIn("opt-in", rundown.lower(), "saved logins are disclosed as opt-in (spec 11.3)")
+        self.assertIn("no terminal", rundown)
+        self.assertIn("idle", rundown.lower())
+
+    def test_idle_timeout_is_configurable(self):
+        example = (ROOT / "config.example.toml").read_text(encoding="utf-8")
+        self.assertIn("idle_timeout_minutes", example)
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("idle_timeout_minutes", readme)
+
     def test_desktop_icon_is_offered(self):
         ps1 = (ROOT / "setup_prerequisites.ps1").read_text(encoding="utf-8")
         bat = (ROOT / "INSTALL.bat").read_text(encoding="utf-8")

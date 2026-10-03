@@ -44,15 +44,25 @@ function Find-SideraPython {
     return $null
 }
 
+# winget writes Python's location into the registry PATH, but this PowerShell
+# session keeps its old PATH. Refreshing it here lets the install finish in
+# one go, with no reboot and no new terminal.
+function Update-SessionPath {
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = "$machinePath;$userPath"
+}
+
 $python = Find-SideraPython
 if ($python) {
     Write-Host "Found Python $($python.Version) at $($python.Executable). Skipping install."
 } else {
     Write-Host "Python 3.11+ was not found. Installing Python 3.12 silently."
     winget install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements
+    Update-SessionPath
     $python = Find-SideraPython
     if (-not $python) {
-        throw "Python 3.11+ is still not available after installation."
+        throw "Python 3.11+ is still not available after installation. Close this window and run INSTALL.bat once more."
     }
 }
 
@@ -137,6 +147,9 @@ if ($wantDesktopIcon) {
 }
 
 Write-Host ""
-Write-Host "Done. Double-click Sidera Mediator. Your default browser opens ChatGPT and Grok with the extension loaded."
-Write-Host "Supported browsers: Chrome, Edge, Brave, Vivaldi, and Opera. Firefox cannot load the extension."
+Write-Host "Done. Double-click Sidera Mediator to open ChatGPT and Grok in your browser."
+Write-Host "Google Chrome needs ONE extra step, once: load the extension by hand."
+Write-Host "  Open chrome://extensions, turn on Developer mode, click 'Load unpacked',"
+Write-Host "  and select C:\Sidera\chrome-extension. Full walkthrough: C:\Sidera\docs\INSTALL.md"
+Write-Host "Edge, Brave, Vivaldi, and Opera load the extension automatically. Firefox cannot run it."
 Write-Host "Extension ID pekgjaanmdkkpclhlobpcggibbkgjbgd"
