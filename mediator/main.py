@@ -194,6 +194,9 @@ class MediatorService:
             "last_message_id": self.state_machine.current_message_id,
             "last_error": self.state_machine.last_error,
             "autonomous_submissions": self.autonomous_submissions,
+            # The opening handshake runs while the state is still IDLE; the
+            # extension needs to know, so a tab lost now still pauses.
+            "genesis_active": self.genesis_target is not None,
             "context": context,
         }
         try:
@@ -635,6 +638,7 @@ class MediatorService:
                 "last_message_id": last_msg["message_id"] if last_msg else None,
                 "last_error": self.state_machine.last_error,
                 "autonomous_submissions": self.autonomous_submissions,
+                "genesis_active": self.genesis_target is not None,
                 "data_root": str(self.root_dir),
                 "slots": {k: v.to_dict() for k, v in self.state_machine.slots.items()},
             })

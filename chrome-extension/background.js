@@ -37,8 +37,20 @@ const slotRegistry = {
 // Mediator states during which losing a tab must pause the exchange.
 const ACTIVE_STATES = ["WAIT_LEFT", "WAIT_RIGHT", "LEFT_COMPLETE", "RIGHT_COMPLETE", "PROCESS", "SEND_LEFT", "SEND_RIGHT"];
 
+// True while the mediator runs the opening (Genesis) handshake. The mediator
+// state is still IDLE then, but a lost tab must pause just the same.
+let genesisActive = false;
+
 function exchangeActive() {
-  return ACTIVE_STATES.includes(currentMediatorState);
+  return genesisActive || ACTIVE_STATES.includes(currentMediatorState);
+}
+
+// Plain pause reason for a side whose tab was lost.
+function lostTabReason(slotId, what) {
+  if (genesisActive && !ACTIVE_STATES.includes(currentMediatorState)) {
+    return `${what} while Sidera was teaching the protocol. Pair a new tab as ${slotId} in the Sidera popup, then press Start again.`;
+  }
+  return `${what}. Pair a new tab as ${slotId} in the Sidera popup, then press Resume.`;
 }
 
 // Which side a content-script message really belongs to. Inbound messages are
@@ -82,7 +94,7 @@ function handleTabGone(tabId) {
       const label = SideraSites.adapterLabel(slot.adapter);
       sendToMediator({
         type: "PAUSE",
-        reason: `The ${slotId} (${label}) tab was closed. Pair a new tab as ${slotId} in the Sidera popup, then press Resume.`,
+        reason: lostTabReason(slotId, `The ${slotId} (${label}) tab was closed`),
       });
     }
     broadcastStatus();
@@ -201,6 +213,7 @@ function handleMediatorMessage(msg) {
     currentTurnCount = msg.turn_count || 0;
     lastMessageId = msg.last_message_id || lastMessageId;
     lastError = msg.last_error || null;
+    if (typeof msg.genesis_active === "boolean") genesisActive = msg.genesis_active;
     if (typeof msg.max_turns === "number") maxTurns = msg.max_turns;
     if (typeof msg.autonomous_submissions === "boolean") autonomousSubmissions = msg.autonomous_submissions;
     persistSession();
@@ -225,7 +238,11 @@ function handleMediatorMessage(msg) {
         });
       }
     }
+  } else if (type === "GENESIS_COMPLETE") {
+    genesisActive = false;
   } else if (type === "GENESIS_TEXT") {
+    // Sent when the handshake starts.
+    genesisActive = true;
     genesisText = msg.text || "";
     persistSession();
     for (const slotId of Object.keys(slotRegistry)) {
@@ -676,6 +693,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     loginWaitGeneration += 1;
     forgetLoginSecret();
     signInMessage = null;
+    genesisActive = false;
     sendToMediator({ type: "STOP" });
   } else if (reqType === "RESPONSE_CAPTURED" || reqType === "SUBMISSION_CONFIRMED" || reqType === "INJECTION_ERROR" || reqType === "SUBMISSION_STALLED" || reqType === "REPLY_PROGRESS") {
     // Only the currently paired tabs may speak for a side, and the side label

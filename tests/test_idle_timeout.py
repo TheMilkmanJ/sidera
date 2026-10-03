@@ -154,6 +154,24 @@ class TestIdleTimeout(unittest.TestCase):
         self.service.handle_message({"type": "REPLY_PROGRESS", "hemisphere": "RIGHT", "chars": 10})
         self.assertEqual(self.service._last_activity, before)
 
+    def test_status_reports_whether_the_handshake_is_running(self):
+        # The extension pauses on a lost tab only while something runs; the
+        # handshake runs in IDLE, so the mediator must say so (audit N3).
+        service = MediatorService(
+            root_dir=self.root, max_turns=50, genesis_enabled=True, idle_timeout_minutes=20
+        )
+        service.ipc = FakeIPC()
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        service.handle_message({"type": "GET_STATUS"})
+        status = [m for m in service.ipc.sent if m.get("type") == "STATUS_RESPONSE"][-1]
+        self.assertEqual(status["state"], "IDLE")
+        self.assertTrue(status["genesis_active"])
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "LEFT", "content": "READY"})
+        service.handle_message({"type": "RESPONSE_CAPTURED", "source": "RIGHT", "content": "READY"})
+        update = [m for m in service.ipc.sent if m.get("type") == "STATE_UPDATE"][-1]
+        self.assertEqual(update["state"], "WAIT_LEFT")
+        self.assertFalse(update["genesis_active"])
+
     def test_pause_during_genesis_is_not_overridden_by_the_watchdog(self):
         # Audit N1: Pause pressed during the opening handshake must not be
         # followed by an idle timeout, and one Resume must be enough.

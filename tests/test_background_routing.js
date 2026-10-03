@@ -383,6 +383,30 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
   assert.equal(h.dispatch({ type: "GET_STATUS" }).leftPaired, false);
 }
 
+// Audit N3: closing a paired tab during the opening handshake (mediator
+// still IDLE) also pauses, and asks for Start again; after the handshake an
+// IDLE mediator does not.
+{
+  const h = makeHarness();
+  h.addTab(11, "https://chatgpt.com/c/a");
+  h.addTab(22, "https://grok.com/");
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "LEFT", adapterType: "chatgpt", tabId: 11 }).success, true);
+  assert.equal(h.dispatch({ type: "PAIR_TAB", side: "RIGHT", adapterType: "grok", tabId: 22 }).success, true);
+  h.fromMediator({ type: "STATE_UPDATE", state: "IDLE", genesis_active: false });
+  h.fromMediator({ type: "GENESIS_TEXT", text: "protocol" });
+  h.closeTab(11);
+  const pauses = h.posted.filter((m) => m.type === "PAUSE");
+  assert.equal(pauses.length, 1, "a tab lost during the handshake pauses");
+  assert.match(pauses[0].reason, /LEFT \(ChatGPT\) tab was closed while Sidera was teaching the protocol/);
+  assert.match(pauses[0].reason, /press Start again/);
+
+  // The mediator's flag is authoritative: once it reports the handshake over,
+  // an IDLE mediator is not paused by a closed tab.
+  h.fromMediator({ type: "STATUS_RESPONSE", state: "IDLE", genesis_active: false });
+  h.closeTab(22);
+  assert.equal(h.posted.filter((m) => m.type === "PAUSE").length, 1, "no pause when nothing is running");
+}
+
 // The chosen AI must match the site the tab is on; the legacy active-tab path
 // infers the site from the tab instead of defaulting blindly.
 {
