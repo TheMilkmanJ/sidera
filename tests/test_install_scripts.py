@@ -99,10 +99,60 @@ class TestInstallScripts(unittest.TestCase):
         self.assertIn("If it doesn't show up", text)
         import re
         images = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", text)
-        self.assertGreaterEqual(len(images), 5, "a screenshot per step")
+        self.assertGreaterEqual(len(images), 3, "the real Chrome captures are kept")
         for image in images:
             self.assertTrue((install_doc.parent / image).exists(), f"missing screenshot {image}")
             self.assertNotIn("pending", image.lower())
+
+        # Every step either shows a real screenshot or says plainly that its
+        # screenshot is still pending; no step silently has no picture.
+        sections = re.split(r"^(?=## Stage 1|### )", text, flags=re.M)[1:]
+        self.assertGreaterEqual(len(sections), 8, "Stage 1 plus steps 1-7")
+        for section in sections:
+            heading = section.splitlines()[0]
+            has_image = re.search(r"!\[[^\]]*\]\(", section) is not None
+            has_marker = "[screenshot pending" in section
+            self.assertTrue(has_image or has_marker, f"no screenshot and no pending marker: {heading}")
+
+        # Steps 3 and 4 are Windows steps: they must not show the Linux test
+        # machine's picker or its /workspace path, and must name the folder.
+        self.assertNotIn("/workspace", text)
+        for name in ("install-3-choose-folder.png", "install-4-folder-path.png", "install-6-popup.png"):
+            self.assertNotIn(name, text, f"{name} is not a real Windows/toolbar capture")
+        step3 = text.split("### 3.")[1].split("### 4.")[0]
+        step4 = text.split("### 4.")[1].split("### 5.")[0]
+        self.assertIn("[screenshot pending (Windows)]", step3)
+        self.assertIn("[screenshot pending (Windows)]", step4)
+        self.assertIn("C:\\Sidera\\chrome-extension", step4)
+        self.assertIn("[screenshot pending]", text.split("### 7.")[1].split("## If it")[0], "the popup shot is pending")
+
+        # The manifest key pins the ID; it does not change with the folder.
+        self.assertNotIn("different ID and will", text)
+        self.assertNotIn("produces a different ID", text)
+        self.assertIn("same whichever folder", text)
+
+    def test_installer_opens_the_html_guide(self):
+        # A .md file opens as raw text on Windows; the installer opens the
+        # HTML build of the same guide in the default browser.
+        ps1 = (ROOT / "setup_prerequisites.ps1").read_text(encoding="utf-8")
+        self.assertIn('docs\\INSTALL.html', ps1)
+        self.assertIn("Start-Process -FilePath $installGuide", ps1)
+        self.assertNotIn("docs\\INSTALL.md", ps1)
+
+        import re
+        page = (ROOT / "docs" / "INSTALL.html").read_text(encoding="utf-8")
+        source = (ROOT / "docs" / "INSTALL.md").read_text(encoding="utf-8")
+        self.assertIn("<style>", page, "styles are inline; no external files needed")
+        self.assertNotIn("<link", page)
+        self.assertNotIn("/workspace", page)
+        sources = re.findall(r'<img[^>]+src="([^"]+)"', page)
+        self.assertEqual(sorted(sources), sorted(re.findall(r"!\[[^\]]*\]\(([^)]+)\)", source)))
+        for src in sources:
+            self.assertFalse(re.match(r"^[a-z]+:|^/", src), f"image path must be relative: {src}")
+            self.assertTrue((ROOT / "docs" / src).exists(), src)
+        self.assertEqual(page.count("[screenshot pending"), source.count("[screenshot pending"))
+        self.assertIn("C:\\Sidera\\chrome-extension", page)
+        self.assertTrue((ROOT / "scripts" / "build_install_html.py").exists())
 
     def test_tech_rundown_is_current(self):
         rundown = (ROOT / "docs" / "TECH-RUNDOWN-for-Taylor.md").read_text(encoding="utf-8")

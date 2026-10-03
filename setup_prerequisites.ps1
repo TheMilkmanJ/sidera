@@ -150,6 +150,21 @@ Write-Host ""
 Write-Host "Done. Double-click Sidera Mediator to open ChatGPT and Grok in your browser."
 Write-Host "Google Chrome needs ONE extra step, once: load the extension by hand."
 Write-Host "  Open chrome://extensions, turn on Developer mode, click 'Load unpacked',"
-Write-Host "  and select C:\Sidera\chrome-extension. Full walkthrough: C:\Sidera\docs\INSTALL.md"
+Write-Host "  and select C:\Sidera\chrome-extension. Full walkthrough: C:\Sidera\docs\INSTALL.html"
 Write-Host "Edge, Brave, Vivaldi, and Opera load the extension automatically. Firefox cannot run it."
 Write-Host "Extension ID pekgjaanmdkkpclhlobpcggibbkgjbgd"
+
+# Open the illustrated walkthrough in the default web browser. The HTML page
+# (built from docs/INSTALL.md) shows the pictures; a .md file would open as
+# raw text in Notepad, or not at all.
+$installGuide = Join-Path $InstallRoot "docs\INSTALL.html"
+if (Test-Path $installGuide) {
+    try {
+        Start-Process -FilePath $installGuide
+        Write-Host "The step-by-step guide is open in your web browser."
+    } catch {
+        Write-Host "Open this file to see the step-by-step guide: $installGuide"
+    }
+} else {
+    Write-Host "Step-by-step guide: https://github.com/TheMilkmanJ/sidera/blob/main/docs/INSTALL.md"
+}

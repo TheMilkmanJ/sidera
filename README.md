@@ -17,6 +17,7 @@ node tests/test_content_recovery.js
 node tests/test_session.js
 node tests/test_sites.js
 node tests/test_background_routing.js
+python3 scripts/build_install_html.py --check   # docs/INSTALL.html matches docs/INSTALL.md
 ```
 
 Python 3.11 or newer is required (`config.toml` is read with the standard library's `tomllib`). The installer installs Python 3.12 if no 3.11+ is present.
@@ -51,7 +52,7 @@ What the installer does:
 
 Then double-click **Sidera Mediator**. It runs `wscript.exe //B launch_silent.vbs`, so there is no console window. The launcher reads the Windows default browser for `https` and opens ChatGPT and Grok there, each in its own window. The browser matters for how the extension gets loaded:
 
-- **Google Chrome (the normal, current version):** the extension must be loaded by hand once. Chrome 137 (May 2025) removed the `--load-extension` command-line switch from regular Chrome, so no program can load it for you, and a policy-based automatic install of a non-Web-Store extension only works on company (domain-managed) PCs, not on a home PC. The one-time step is free and takes about a minute: open `chrome://extensions`, turn on Developer mode, click **Load unpacked**, and select `C:\Sidera\chrome-extension`. The extension then stays in Chrome permanently. **[docs/INSTALL.md](docs/INSTALL.md) walks through it with a screenshot for every step.**
+- **Google Chrome (the normal, current version):** the extension must be loaded by hand once. Chrome 137 (May 2025) removed the `--load-extension` command-line switch from regular Chrome, so no program can load it for you, and a policy-based automatic install of a non-Web-Store extension only works on company (domain-managed) PCs, not on a home PC. The one-time step is free and takes about a minute: open `chrome://extensions`, turn on Developer mode, click **Load unpacked**, and select `C:\Sidera\chrome-extension`. The extension then stays in Chrome permanently. **[docs/INSTALL.md](docs/INSTALL.md) walks through it step by step** (the installer opens the same guide as `C:\Sidera\docs\INSTALL.html` in the default browser when it finishes). Steps 1, 2 and 6 have real Chrome screenshots; the rest are marked *[screenshot pending]* until real Windows captures are taken. After editing `docs/INSTALL.md`, rebuild the HTML with `python3 scripts/build_install_html.py`.
 - **Edge, Brave, Vivaldi, Opera, Chromium:** these still honor `--load-extension`, so the launcher loads the extension automatically — no manual step.
 - **Firefox** cannot load this extension. If the default browser is unsupported and a supported browser is installed, Sidera tells you and opens that one instead.
 
