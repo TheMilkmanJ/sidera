@@ -94,8 +94,7 @@ still need you; Sidera never tries to get around them.
 
 ## Installing
 
-`INSTALL.bat` copies Sidera to `C:\Sidera`, installs Python if needed (and
-finishes in one run — no reboot), and registers the native-messaging
+`INSTALL.bat` copies Sidera to `C:\Sidera`, installs Python if needed, and registers the native-messaging
 connection for Chrome, Edge, Brave, Vivaldi, Opera and Chromium. On Google
 Chrome there is one extra one-time step, because current Chrome no longer
 lets a program load an extension automatically: open `chrome://extensions`,
@@ -106,8 +105,10 @@ guide (`C:\Sidera\docs\INSTALL.html`) in your web browser. Steps 1, 2 and 6 of
 the Chrome stage have real Chrome screenshots. The other steps are clearly
 marked "screenshot pending" and give the exact buttons and the exact folder in
 text, until real Windows captures are taken. Edge and the other supported
-browsers load the extension automatically. The launcher opens each AI in its own window, so
-neither side is a hidden background tab that Chrome would slow down.
+browsers can pick the extension up by themselves, but only when Sidera starts
+them from fully closed; otherwise it is loaded by hand there too, the same
+way. The launcher opens each AI in its own window, so neither side is a
+hidden background tab that Chrome would slow down.
 
 ## Testing so far (honest)
 

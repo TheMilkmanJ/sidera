@@ -151,7 +151,8 @@ Write-Host "Done. Double-click Sidera Mediator to open ChatGPT and Grok in your 
 Write-Host "Google Chrome needs ONE extra step, once: load the extension by hand."
 Write-Host "  Open chrome://extensions, turn on Developer mode, click 'Load unpacked',"
 Write-Host "  and select C:\Sidera\chrome-extension. Full walkthrough: C:\Sidera\docs\INSTALL.html"
-Write-Host "Edge, Brave, Vivaldi, and Opera load the extension automatically. Firefox cannot run it."
+Write-Host "Edge, Brave, Vivaldi, and Opera can load it by themselves if they are fully closed when Sidera opens them;"
+Write-Host "  otherwise load it by hand there the same way. Firefox cannot run it."
 Write-Host "Extension ID pekgjaanmdkkpclhlobpcggibbkgjbgd"
 
 # Open the illustrated walkthrough in the default web browser. The HTML page
@@ -166,5 +167,13 @@ if (Test-Path $installGuide) {
         Write-Host "Open this file to see the step-by-step guide: $installGuide"
     }
 } else {
-    Write-Host "Step-by-step guide: https://github.com/TheMilkmanJ/sidera/blob/main/docs/INSTALL.md"
+    # Should not happen (robocopy copies docs\ above); fall back to the copy in
+    # the downloaded folder, which has the same guide and pictures.
+    $sourceGuide = Join-Path $SourceRoot "docs\INSTALL.html"
+    if (Test-Path $sourceGuide) {
+        Start-Process -FilePath $sourceGuide
+        Write-Host "The step-by-step guide is open in your web browser: $sourceGuide"
+    } else {
+        Write-Host "The step-by-step guide is missing from $installGuide. Run INSTALL.bat again from the downloaded Sidera folder."
+    }
 }

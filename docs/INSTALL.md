@@ -4,9 +4,11 @@ Two stages: run the installer, then load the extension into Google Chrome once.
 The second stage is needed because current Google Chrome (version 137 and
 later) no longer lets a program load an extension for you; it must be loaded
 once by hand. It stays in Chrome afterwards — this is a one-time step, and it
-is free. (Microsoft Edge, Brave, Vivaldi, and Opera load the extension
-automatically when Sidera opens them, so on those browsers you can skip
-stage 2.)
+is free. (Microsoft Edge, Brave, Vivaldi, and Opera can pick the extension up
+by themselves when Sidera opens them, but only if that browser was fully
+closed first, with no window open and nothing left running in the background.
+If the Sidera button does not appear in one of those browsers, load the
+extension there by hand the same way as in stage 2.)
 
 About the pictures: the screenshots for steps 1, 2 and 6 of stage 2 are real
 captures of Google Chrome. The other steps are marked **[screenshot pending]**.

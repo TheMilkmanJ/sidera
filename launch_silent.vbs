@@ -48,8 +48,8 @@ RegisterHost chosenHive, manifestPath
 ' --load-extension is a free bonus, not the install path: branded Google
 ' Chrome 137+ (May 2025) ignores the flag with a warning, so on Chrome the
 ' extension is loaded once by hand instead (chrome://extensions -> Developer
-' mode -> Load unpacked; see docs/INSTALL.md). Edge, Brave, Vivaldi, Opera and
-' Chromium still honor the flag, and an already-loaded unpacked extension
+' mode -> Load unpacked; see docs/INSTALL.html). Edge, Brave, Vivaldi, Opera and
+' Chromium still honor the flag (only when started from fully closed), and an already-loaded unpacked extension
 ' stays in the profile either way.
 ' Each site gets its own window so neither side sits as a hidden background
 ' tab, which Chrome would throttle during long runs.

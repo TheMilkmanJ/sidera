@@ -87,7 +87,8 @@ class TestInstallScripts(unittest.TestCase):
 
         vbs = (ROOT / "launch_silent.vbs").read_text(encoding="utf-8")
         self.assertIn("Chrome 137", vbs, "the launcher says why the flag is only a fallback")
-        self.assertIn("docs/INSTALL.md", vbs)
+        self.assertIn("docs/INSTALL.html", vbs, "the launcher points at the guide the installer opens")
+        self.assertNotIn("docs/INSTALL.md", vbs)
         self.assertEqual(vbs.count("--new-window"), 2, "each side opens in its own window")
 
         install_doc = ROOT / "docs" / "INSTALL.md"
@@ -131,6 +132,10 @@ class TestInstallScripts(unittest.TestCase):
         self.assertNotIn("produces a different ID", text)
         self.assertNotIn("different ID", text, "no troubleshooting tip about a changed ID either")
         self.assertIn("same whichever folder", text)
+        # Edge and friends honor --load-extension only from a fully closed start.
+        flat_text = re.sub(r"\s+", " ", text)
+        self.assertNotIn("load the extension automatically", flat_text)
+        self.assertIn("fully closed", flat_text)
 
     def test_installer_opens_the_html_guide(self):
         # A .md file opens as raw text on Windows; the installer opens the
@@ -139,6 +144,8 @@ class TestInstallScripts(unittest.TestCase):
         self.assertIn('docs\\INSTALL.html', ps1)
         self.assertIn("Start-Process -FilePath $installGuide", ps1)
         self.assertNotIn("docs\\INSTALL.md", ps1)
+        self.assertNotIn("github.com", ps1, "the fallback is the local guide, not a web link that may not exist yet")
+        self.assertNotIn("load the extension automatically", ps1)
 
         import re
         page = (ROOT / "docs" / "INSTALL.html").read_text(encoding="utf-8")
@@ -166,6 +173,8 @@ class TestInstallScripts(unittest.TestCase):
         self.assertTrue(version.startswith(match.group(1)), f"title {title!r} vs manifest {version}")
         flat = re.sub(r"\s+", " ", rundown)
         self.assertNotIn("screenshot for every step", flat)
+        self.assertNotIn("no reboot", flat, "untested on Windows")
+        self.assertNotIn("load the extension automatically", flat)
         self.assertIn("ChatGPT vs Gemini", flat, "the long burn-ins are named honestly")
         self.assertIn("ChatGPT vs ChatGPT", flat)
         self.assertIn("passed only in code and simulation", flat, "section 12 is not claimed as passed live")
