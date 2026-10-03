@@ -156,6 +156,19 @@ class TestInstallScripts(unittest.TestCase):
 
     def test_tech_rundown_is_current(self):
         rundown = (ROOT / "docs" / "TECH-RUNDOWN-for-Taylor.md").read_text(encoding="utf-8")
+        import json
+        import re
+        version = json.loads((ROOT / "chrome-extension" / "manifest.json").read_text(encoding="utf-8"))["version"]
+        title = rundown.splitlines()[0]
+        match = re.search(r"v(\d+(?:\.\d+)*)", title)
+        self.assertIsNotNone(match, title)
+        self.assertTrue(version.startswith(match.group(1)), f"title {title!r} vs manifest {version}")
+        flat = re.sub(r"\s+", " ", rundown)
+        self.assertNotIn("screenshot for every step", flat)
+        self.assertIn("ChatGPT vs Gemini", flat, "the long burn-ins are named honestly")
+        self.assertIn("ChatGPT vs ChatGPT", flat)
+        self.assertIn("passed only in code and simulation", flat, "section 12 is not claimed as passed live")
+        self.assertIn("not been run live yet on your Windows PC with Google Chrome", flat)
         self.assertIn("native messaging", rundown)
         self.assertNotIn("8765", rundown, "the WebSocket port claim is stale")
         self.assertNotIn("WebSocket on 127", rundown)
