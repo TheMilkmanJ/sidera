@@ -20,6 +20,7 @@
     .pair-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
     .pair-col { display: flex; flex-direction: column; gap: 6px; }
     .pair-head { font-size: 11px; font-weight: 600; color: #94a3b8; letter-spacing: 0.04em; }
+    .pair-label { font-size: 11px; color: #64748b; margin-bottom: -4px; }
     .pair-col select { width: 100%; box-sizing: border-box; padding: 5px 6px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #f8fafc; font-size: 12px; }
     button { padding: 7px 10px; border: none; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
     .btn-pair { background: #334155; color: #f8fafc; }
@@ -47,7 +48,7 @@
   <div class="card">
     <div class="metric-row"><span class="metric-label">Turn:</span><span id="turnCount" class="metric-val">0</span></div>
     <div class="metric-row"><span class="metric-label">Last Message ID:</span><span id="lastMsgId" class="metric-val">-</span></div>
-    <div class="metric-row"><span class="metric-label">Mediator:</span><span id="ipcStatus" class="metric-val">Checking...</span></div>
+    <div class="metric-row"><span class="metric-label">Sidera program:</span><span id="ipcStatus" class="metric-val">Checking...</span></div>
     <div class="metric-row"><span class="metric-label">Mode:</span><span id="modeStatus" class="metric-val">-</span></div>
     <div id="lastError" class="error-text"></div>
   </div>
@@ -56,26 +57,32 @@
   <div class="pair-grid">
     <div class="pair-col">
       <div class="pair-head">LEFT</div>
+      <label class="pair-label" for="siteLeft">AI:</label>
       <select id="siteLeft">
         <option value="chatgpt" selected>ChatGPT</option>
         <option value="grok">Grok</option>
         <option value="gemini">Gemini</option>
       </select>
+      <label class="pair-label" for="tabLeft">Tab:</label>
       <select id="tabLeft"></select>
+      <button id="btnOpenLeft" class="btn-quiet">Open another tab</button>
       <button id="btnPairLeft" class="btn-pair">Pair LEFT</button>
     </div>
     <div class="pair-col">
       <div class="pair-head">RIGHT</div>
+      <label class="pair-label" for="siteRight">AI:</label>
       <select id="siteRight">
         <option value="chatgpt">ChatGPT</option>
         <option value="grok" selected>Grok</option>
         <option value="gemini">Gemini</option>
       </select>
+      <label class="pair-label" for="tabRight">Tab:</label>
       <select id="tabRight"></select>
+      <button id="btnOpenRight" class="btn-quiet">Open another tab</button>
       <button id="btnPairRight" class="btn-pair">Pair RIGHT</button>
     </div>
   </div>
-  <p class="hint">Both sides can use the same AI (for example ChatGPT vs ChatGPT): open two tabs of that site and pick a different tab for each side.</p>
+  <p class="hint">Both sides can use the same AI (for example ChatGPT vs ChatGPT): open two tabs of that site and pick a different tab for each side. Open another tab opens one in its own window. Note: two sides on the same account share that account's message limits.</p>
 
   <div class="section-title">Exchange</div>
   <div class="btn-group">

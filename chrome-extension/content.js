@@ -608,6 +608,12 @@
       }
       startObserver();
       sendResponse({ status: "paired", hemisphere: hemisphere });
+    } else if (msg.type === "UNASSIGN_HEMISPHERE") {
+      // This tab no longer holds a side (re-paired away, or it was never
+      // paired). Stop watching so it cannot report replies for a side.
+      retire();
+      if (isCurrentInstance()) delete document.documentElement.dataset.sideraInstance;
+      sendResponse({ status: "retired" });
     } else if (msg.type === "INJECT_AND_SUBMIT") {
       injectAndSubmit(msg.text, msg.message_id);
       sendResponse({ status: "submitting" });
