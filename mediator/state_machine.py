@@ -132,6 +132,12 @@ class StateMachine:
         return self.state
 
     def pause(self, reason: str = "Operator paused"):
+        if self.state == MediatorState.PAUSED:
+            # Already paused: keep the state to return to (so one Resume is
+            # always enough) and show the newest reason.
+            self.last_error = reason
+            self._transition(MediatorState.PAUSED, {"reason": reason})
+            return
         self.paused_previous_state = self.state
         self.last_error = reason
         self._transition(MediatorState.PAUSED, {"reason": reason})

@@ -104,6 +104,35 @@ class TestIdleTimeout(unittest.TestCase):
         self.assertEqual(service.genesis_pending, [])
         self.assertIn("press Start again", service.state_machine.last_error)
 
+    def test_pause_during_genesis_is_not_overridden_by_the_watchdog(self):
+        # Audit N1: Pause pressed during the opening handshake must not be
+        # followed by an idle timeout, and one Resume must be enough.
+        service = MediatorService(
+            root_dir=self.root, max_turns=50, genesis_enabled=True, idle_timeout_minutes=20
+        )
+        service.ipc = FakeIPC()
+        service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        self.assertEqual(service.genesis_target, "LEFT")
+        service.handle_message({"type": "PAUSE", "reason": "Operator break"})
+        self.assertEqual(service.state_machine.state, MediatorState.PAUSED)
+
+        self.assertFalse(service.check_idle(now=service._last_activity + 21 * 60))
+        self.assertEqual(service.state_machine.state, MediatorState.PAUSED)
+        self.assertEqual(service.state_machine.last_error, "Operator break", "the operator's reason is kept")
+        self.assertEqual(service.genesis_target, "LEFT", "the handshake is not abandoned while paused")
+
+        service.handle_message({"type": "RESUME"})
+        self.assertNotEqual(service.state_machine.state, MediatorState.PAUSED, "one Resume is enough")
+        self.assertEqual(service.state_machine.state, MediatorState.IDLE)
+
+    def test_double_pause_needs_only_one_resume(self):
+        self.service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
+        self.service.handle_message({"type": "PAUSE", "reason": "first"})
+        self.service.handle_message({"type": "PAUSE", "reason": "second"})
+        self.assertEqual(self.service.state_machine.last_error, "second")
+        self.service.handle_message({"type": "RESUME"})
+        self.assertEqual(self.service.state_machine.state, MediatorState.WAIT_LEFT)
+
     def test_resume_after_idle_pause_repastes_the_pending_message(self):
         self.service.handle_message({"type": "START", "initial_hemisphere": "LEFT"})
         self.service.handle_message({

@@ -810,6 +810,13 @@ class MediatorService:
             return False
         minutes = max(1, int(round(idle_seconds / 60)))
 
+        # The operator (or an earlier timeout) already paused: nothing is
+        # expected to move, so never time out on top of that pause, not even
+        # during the opening handshake. Otherwise the operator's own reason is
+        # overwritten and Resume has to be pressed twice.
+        if self.state_machine.state == MediatorState.PAUSED:
+            return False
+
         if self.genesis_target is not None:
             side = self.genesis_target
             self.genesis_pending = []
