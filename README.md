@@ -61,11 +61,11 @@ In the extension popup: for each side pick the AI (ChatGPT, Grok, or Gemini) and
 
 ## Operator controls (extension popup)
 
-- **Pair LEFT / Pair RIGHT**: pick the AI and the tab for each side, then pair. Any site can sit on either side, including the same site twice (one tab per side; two sides on the same account share that account's message limits). **Open another tab** opens a fresh tab of the chosen site in its own window — handy for same-AI runs. Closing a paired tab unpairs that side immediately (and pauses a running exchange with a plain reason). **Start Exchange** (refused with a clear message until both sides are paired), **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
+- **Pair LEFT / Pair RIGHT**: pick the AI and the tab for each side, then pair. Any site can sit on either side, including the same site twice (one tab per side; two sides on the same account share that account's message limits). **Open in a new window** opens the chosen site in a new window of its own and preselects it — handy for same-AI runs. Same-site tabs in one window are numbered in the picker (Tab 1, Tab 2), and the AI picked for each side is remembered as soon as it is picked. Closing a paired tab unpairs that side immediately (and pauses a running exchange with a plain reason). **Start Exchange** (refused with a clear message until both sides are paired), **Pause** (after the current turn) / **Resume**, **Emergency STOP** (nothing more is pasted; state stays on disk).
 - **Manual forward** LEFT → RIGHT or RIGHT → LEFT: copies the newest completed reply once, through the same ledger and tag processing.
 - **Maximum autonomous turns**: change the ceiling while running; the value is remembered across restarts.
 - **Open data folder / Open latest log**.
-- Status: state, turn `N / max`, last message ID, mediator connection, mode (autonomous or monitor only) and the last error or pause reason in the site's own words.
+- Status: state, turn `N / max`, the last message's log number, whether the Sidera program is running, whether Sidera is pasting replies (on, or watching only) and the last error or pause reason in plain words.
 
 ## Genesis Protocol
 

@@ -98,7 +98,8 @@ const SideraSites = {
       SEND_RIGHT: "Sending to RIGHT",
       PAUSED: "Paused",
       ERROR: "Needs attention",
-      DISCONNECTED: "Not connected",
+      // Same words as the "Sidera program" row, so the two never disagree.
+      DISCONNECTED: "Not running",
     };
     return labels[String(state || "").toUpperCase()] || String(state || "");
   },
@@ -133,12 +134,42 @@ const SideraSites = {
   },
 
   // Readable label for a tab in the picker: the window (when there is more
-  // than one) plus the chat title, so two same-site tabs can be told apart.
-  describeTab(tab, { windowNumber = 1, multiWindow = false, pairedAs = null } = {}) {
+  // than one), a tab number (when one window holds several tabs of the same
+  // site, which often all read just "ChatGPT"), plus the chat title, so two
+  // same-site tabs can always be told apart.
+  // Number the same-site tabs within each window (1, 2, ...) in tab order,
+  // but only in windows that hold more than one of them. Returns a Map from
+  // tab id to its number; tabs alone in their window get no number.
+  tabNumbers(tabs) {
+    const byWindow = new Map();
+    for (const tab of tabs || []) {
+      if (!byWindow.has(tab.windowId)) byWindow.set(tab.windowId, []);
+      byWindow.get(tab.windowId).push(tab);
+    }
+    const numbers = new Map();
+    for (const group of byWindow.values()) {
+      if (group.length < 2) continue;
+      group
+        .slice()
+        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+        .forEach((tab, i) => numbers.set(tab.id, i + 1));
+    }
+    return numbers;
+  },
+
+  // The URL a tab is on or about to be on. A tab that was just opened may
+  // only have pendingUrl until its first navigation commits.
+  tabUrl(tab) {
+    return (tab && (tab.url || tab.pendingUrl)) || "";
+  },
+
+  describeTab(tab, { windowNumber = 1, multiWindow = false, tabNumber = null, pairedAs = null } = {}) {
     let title = String(tab.title || tab.url || "").trim();
     if (title.length > 40) title = title.slice(0, 39).trimEnd() + "…";
     const parts = [];
-    if (multiWindow) parts.push(`Window ${windowNumber}: `);
+    if (multiWindow && tabNumber != null) parts.push(`Window ${windowNumber}, tab ${tabNumber}: `);
+    else if (multiWindow) parts.push(`Window ${windowNumber}: `);
+    else if (tabNumber != null) parts.push(`Tab ${tabNumber}: `);
     parts.push(title || "(untitled tab)");
     if (pairedAs) parts.push(` — paired as ${pairedAs}`);
     return parts.join("");

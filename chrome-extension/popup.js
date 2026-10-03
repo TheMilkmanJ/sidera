@@ -16,6 +16,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // Once the operator touches a side's site picker, status updates stop
   // overwriting it with the currently paired adapter.
   const siteTouched = { LEFT: false, RIGHT: false };
+  // The tab each side's "Open in a new window" created, until it is listed.
+  const openedTabs = { LEFT: null, RIGHT: null };
   let pairedTabs = { LEFT: null, RIGHT: null };
   const btnStart = document.getElementById("btnStart");
   const btnPause = document.getElementById("btnPause");
@@ -55,7 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const adapterType = controls.site.value;
     const label = SideraSites.adapterLabel(adapterType);
     chrome.tabs.query({}, (tabs) => {
-      const matching = (tabs || []).filter((tab) => SideraSites.siteForUrl(tab.url) === adapterType);
+      const matching = (tabs || []).filter((tab) => SideraSites.siteForUrl(SideraSites.tabUrl(tab)) === adapterType);
       const previous = parseInt(controls.tab.value, 10);
       controls.tab.innerHTML = "";
       if (matching.length === 0) {
@@ -71,6 +73,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!windowNumbers.has(tab.windowId)) windowNumbers.set(tab.windowId, windowNumbers.size + 1);
       }
       const multiWindow = new Set(matching.map((tab) => tab.windowId)).size > 1;
+      const tabNumbers = SideraSites.tabNumbers(matching);
       for (const tab of matching) {
         const option = document.createElement("option");
         option.value = String(tab.id);
@@ -78,13 +81,18 @@ document.addEventListener("DOMContentLoaded", () => {
         option.innerText = SideraSites.describeTab(tab, {
           windowNumber: windowNumbers.get(tab.windowId),
           multiWindow: multiWindow,
+          tabNumber: tabNumbers.has(tab.id) ? tabNumbers.get(tab.id) : null,
           pairedAs: pairedAs,
         });
         controls.tab.appendChild(option);
       }
       const otherSelection = parseInt(pairControls[other].tab.value, 10);
+      // A window just opened with "Open in a new window" is preselected as
+      // soon as its tab shows up in the list.
+      const wanted = Number.isFinite(preferredTabId) ? preferredTabId : openedTabs[side];
+      if (wanted != null && matching.some((tab) => tab.id === wanted)) openedTabs[side] = null;
       const chosen = SideraSites.chooseTab(matching, {
-        previousValue: Number.isFinite(preferredTabId) ? preferredTabId : (Number.isFinite(previous) ? previous : null),
+        previousValue: Number.isFinite(wanted) ? wanted : (Number.isFinite(previous) ? previous : null),
         pairedTabId: pairedTabs[side],
         avoidTabIds: [pairedTabs[other], Number.isFinite(otherSelection) ? otherSelection : null],
       });
@@ -109,7 +117,9 @@ document.addEventListener("DOMContentLoaded", () => {
     turnCount.innerText = data.maxTurns ? `${turns} / ${data.maxTurns}` : String(turns);
     lastMsgId.innerText = data.lastMessageId || "-";
     ipcStatus.innerText = data.connected ? "Running" : "Not running — open Sidera from its icon";
-    modeStatus.innerText = data.autonomousSubmissions === false ? "Monitor only (no pasting)" : "Autonomous";
+    modeStatus.innerText = data.autonomousSubmissions === false
+      ? "Off — Sidera only watches (set in config.toml)"
+      : "On — Sidera pastes each reply into the other side";
 
     if (data.lastError) {
       lastError.innerText = data.lastError;
@@ -129,8 +139,11 @@ document.addEventListener("DOMContentLoaded", () => {
       const tabId = slot && slot.tabId != null ? slot.tabId : null;
       if (pairedTabs[side] !== tabId) pairingsChanged = true;
       pairedTabs[side] = tabId;
-      if (slot && slot.adapter && !siteTouched[side] && controls.site.value !== slot.adapter) {
-        controls.site.value = slot.adapter;
+      // Show the AI last picked for this side (saved even before Pair was
+      // pressed), else the paired one.
+      const shownAdapter = (data.choices && data.choices[side]) || (slot && slot.adapter);
+      if (shownAdapter && !siteTouched[side] && controls.site.value !== shownAdapter) {
+        controls.site.value = shownAdapter;
         refreshTabChoices(side);
       }
       if (paired) {
@@ -224,8 +237,8 @@ document.addEventListener("DOMContentLoaded", () => {
   btnPairLeft.addEventListener("click", () => pairSide("LEFT"));
   btnPairRight.addEventListener("click", () => pairSide("RIGHT"));
 
-  // Open a fresh tab of the side's chosen site, in its own window so Chrome
-  // does not throttle it as a hidden background tab, and preselect it in the
+  // Open the side's chosen site in a new window of its own, so Chrome does
+  // not throttle it as a hidden background tab, and preselect it in the
   // picker. Handy for same-AI runs, where a second tab is needed.
   function openTabFor(side) {
     const controls = pairControls[side];
@@ -233,15 +246,37 @@ document.addEventListener("DOMContentLoaded", () => {
     const label = SideraSites.adapterLabel(adapterType);
     chrome.windows.create({ url: SideraSites.homeUrl(adapterType), focused: false }, (win) => {
       const newTab = win && win.tabs && win.tabs[0];
-      statusMessage.innerText = `Opened a new ${label} window. Pick it under ${side}, then click Pair ${side}.`;
-      setTimeout(() => refreshTabChoices(side, newTab ? newTab.id : undefined), 400);
+      if (newTab) openedTabs[side] = newTab.id;
+      statusMessage.innerText = `Opened ${label} in a new window. It is preselected under ${side}; click Pair ${side} once the page has loaded.`;
+      refreshTabChoices(side);
     });
   }
+
+  // Keep both tab pickers current as tabs open, load, change title, or
+  // close, instead of guessing how long a new window takes to appear.
+  let tabRefreshTimer = null;
+  function scheduleTabRefresh() {
+    if (tabRefreshTimer) clearTimeout(tabRefreshTimer);
+    tabRefreshTimer = setTimeout(() => {
+      tabRefreshTimer = null;
+      refreshTabChoices("LEFT");
+      refreshTabChoices("RIGHT");
+    }, 150);
+  }
+  chrome.tabs.onCreated.addListener(scheduleTabRefresh);
+  chrome.tabs.onRemoved.addListener(scheduleTabRefresh);
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.url || changeInfo.title || changeInfo.status === "complete") scheduleTabRefresh();
+  });
 
   for (const side of ["LEFT", "RIGHT"]) {
     pairControls[side].open.addEventListener("click", () => openTabFor(side));
     pairControls[side].site.addEventListener("change", () => {
       siteTouched[side] = true;
+      // Remember the pick right away, even if Pair is never pressed.
+      chrome.runtime.sendMessage({ type: "SET_ADAPTER_CHOICE", side: side, adapterType: pairControls[side].site.value }, () => {
+        void chrome.runtime.lastError;
+      });
       refreshTabChoices(side);
     });
   }

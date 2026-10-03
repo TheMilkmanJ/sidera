@@ -44,12 +44,12 @@
   </style>
 </head>
 <body>
-  <h2>Sidera Mediator <span id="stateBadge" class="badge">IDLE</span></h2>
+  <h2>Sidera Mediator <span id="stateBadge" class="badge">Idle</span></h2>
   <div class="card">
     <div class="metric-row"><span class="metric-label">Turn:</span><span id="turnCount" class="metric-val">0</span></div>
-    <div class="metric-row"><span class="metric-label">Last Message ID:</span><span id="lastMsgId" class="metric-val">-</span></div>
+    <div class="metric-row"><span class="metric-label">Last message (log number):</span><span id="lastMsgId" class="metric-val">-</span></div>
     <div class="metric-row"><span class="metric-label">Sidera program:</span><span id="ipcStatus" class="metric-val">Checking...</span></div>
-    <div class="metric-row"><span class="metric-label">Mode:</span><span id="modeStatus" class="metric-val">-</span></div>
+    <div class="metric-row"><span class="metric-label">Pasting replies:</span><span id="modeStatus" class="metric-val">-</span></div>
     <div id="lastError" class="error-text"></div>
   </div>
 
@@ -65,7 +65,7 @@
       </select>
       <label class="pair-label" for="tabLeft">Tab:</label>
       <select id="tabLeft"></select>
-      <button id="btnOpenLeft" class="btn-quiet">Open another tab</button>
+      <button id="btnOpenLeft" class="btn-quiet">Open in a new window</button>
       <button id="btnPairLeft" class="btn-pair">Pair LEFT</button>
     </div>
     <div class="pair-col">
@@ -78,11 +78,11 @@
       </select>
       <label class="pair-label" for="tabRight">Tab:</label>
       <select id="tabRight"></select>
-      <button id="btnOpenRight" class="btn-quiet">Open another tab</button>
+      <button id="btnOpenRight" class="btn-quiet">Open in a new window</button>
       <button id="btnPairRight" class="btn-pair">Pair RIGHT</button>
     </div>
   </div>
-  <p class="hint">Both sides can use the same AI (for example ChatGPT vs ChatGPT): open two tabs of that site and pick a different tab for each side. Open another tab opens one in its own window. Note: two sides on the same account share that account's message limits.</p>
+  <p class="hint">Both sides can use the same AI (for example ChatGPT vs ChatGPT): open that site twice and pick a different tab for each side. Open in a new window opens the chosen AI in a new window of its own. Note: two sides on the same account share that account's message limits.</p>
 
   <div class="section-title">Exchange</div>
   <div class="btn-group">

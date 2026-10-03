@@ -67,7 +67,8 @@ assert.equal(Sites.stateLabel("SEND_RIGHT"), "Sending to RIGHT");
 assert.equal(Sites.stateLabel("PROCESS"), "Processing");
 assert.equal(Sites.stateLabel("IDLE"), "Idle");
 assert.equal(Sites.stateLabel("PAUSED"), "Paused");
-assert.equal(Sites.stateLabel("DISCONNECTED"), "Not connected");
+// Same wording as the popup's "Sidera program: Not running" row.
+assert.equal(Sites.stateLabel("DISCONNECTED"), "Not running");
 assert.equal(Sites.stateLabel("SOMETHING_NEW"), "SOMETHING_NEW", "unknown states pass through");
 
 // Plain wording for Chrome's internal messaging errors.
@@ -102,7 +103,139 @@ assert.equal(Sites.describeTab({ id: 1, title: "Gyrocell brainstorming" }, { win
 assert.equal(Sites.describeTab({ id: 1, title: "ChatGPT" }, { windowNumber: 1, multiWindow: false }), "ChatGPT");
 assert.equal(Sites.describeTab({ id: 1, title: "ChatGPT" }, { windowNumber: 1, multiWindow: false, pairedAs: "LEFT" }), "ChatGPT — paired as LEFT");
 assert.equal(Sites.describeTab({ id: 1, title: "" }, {}), "(untitled tab)");
+// Two same-site tabs in ONE window often share the title "ChatGPT": they get
+// a number so they can be told apart.
+const sameWindow = [
+  { id: 5, windowId: 1, index: 3, title: "ChatGPT" },
+  { id: 4, windowId: 1, index: 1, title: "ChatGPT" },
+  { id: 9, windowId: 2, index: 0, title: "ChatGPT" },
+];
+const numbers = Sites.tabNumbers(sameWindow);
+assert.equal(numbers.get(4), 1);
+assert.equal(numbers.get(5), 2);
+assert.equal(numbers.has(9), false, "a tab alone in its window needs no number");
+assert.equal(Sites.describeTab(sameWindow[1], { tabNumber: numbers.get(4) }), "Tab 1: ChatGPT");
+assert.equal(Sites.describeTab(sameWindow[0], { tabNumber: numbers.get(5) }), "Tab 2: ChatGPT");
+assert.notEqual(
+  Sites.describeTab(sameWindow[0], { tabNumber: 2 }),
+  Sites.describeTab(sameWindow[1], { tabNumber: 1 }),
+  "same-title tabs never read the same",
+);
+assert.equal(Sites.describeTab(sameWindow[0], { windowNumber: 1, multiWindow: true, tabNumber: 2 }), "Window 1, tab 2: ChatGPT");
+// A freshly opened tab only has pendingUrl until it commits.
+assert.equal(Sites.siteForUrl(Sites.tabUrl({ url: "", pendingUrl: "https://chatgpt.com/" })), "chatgpt");
+assert.equal(Sites.tabUrl({ url: "https://grok.com/", pendingUrl: "https://chatgpt.com/" }), "https://grok.com/");
 const long = Sites.describeTab({ id: 1, title: "A very long conversation title that keeps going and going" }, {});
 assert.ok(long.length <= 41 && long.endsWith("…"), long);
+
+// The popup itself, against a tiny fake DOM and chrome API: same-window
+// ChatGPT tabs are numbered, the AI pick is saved before Pair, the wording is
+// plain, and a window opened with "Open in a new window" is preselected when
+// its tab appears (on a tab event, not after a guessed delay).
+{
+  const popupHtml = fs.readFileSync(path.join(__dirname, "../chrome-extension/popup.html"), "utf8");
+  assert.ok(!/Open another tab/.test(popupHtml), "the button says it opens a window");
+  assert.match(popupHtml, /Open in a new window/);
+  assert.ok(!/Last Message ID/.test(popupHtml));
+  assert.ok(!/>Mode:</.test(popupHtml));
+
+  class FakeElement {
+    constructor(id) {
+      this.id = id; this.children = []; this.listeners = {}; this.innerText = ""; this.style = {};
+      this._value = undefined; this.placeholder = "";
+      const classes = new Set();
+      this.classList = { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) };
+    }
+    set innerHTML(v) { this.children = []; this._value = undefined; }
+    get value() {
+      if (this._value !== undefined) return this._value;
+      return this.children.length ? this.children[0].value : "";
+    }
+    set value(v) { this._value = String(v); }
+    get selectedOptions() { const v = this.value; return this.children.filter((c) => c.value === v); }
+    appendChild(child) { this.children.push(child); }
+    addEventListener(type, fn) { this.listeners[type] = fn; }
+    fire(type) { this.listeners[type](); }
+  }
+  const elements = new Map();
+  const document = {
+    getElementById(id) { if (!elements.has(id)) elements.set(id, new FakeElement(id)); return elements.get(id); },
+    createElement() { return new FakeElement(null); },
+    addEventListener(type, fn) { this.ready = fn; },
+  };
+  document.getElementById("siteLeft").value = "chatgpt";
+  document.getElementById("siteRight").value = "grok";
+  document.getElementById("loginService").value = "chatgpt";
+  document.getElementById("loginAction").value = "save";
+
+  const tabs = [
+    { id: 11, windowId: 1, index: 0, title: "ChatGPT", url: "https://chatgpt.com/", active: true },
+    { id: 12, windowId: 1, index: 1, title: "ChatGPT", url: "https://chatgpt.com/" },
+  ];
+  const sentToBackground = [];
+  const tabEvents = { created: [], updated: [], removed: [] };
+  const timers = [];
+  let createdWindow = null;
+  const chrome = {
+    runtime: {
+      lastError: null,
+      sendMessage(msg, cb) {
+        sentToBackground.push(msg);
+        if (msg.type === "GET_STATUS" && cb) {
+          cb({ state: "DISCONNECTED", connected: false, autonomousSubmissions: true, slots: {}, choices: { LEFT: "chatgpt", RIGHT: "chatgpt" } });
+        }
+      },
+      onMessage: { addListener() {} },
+    },
+    tabs: {
+      query(info, cb) { cb(tabs.slice()); },
+      onCreated: { addListener(fn) { tabEvents.created.push(fn); } },
+      onUpdated: { addListener(fn) { tabEvents.updated.push(fn); } },
+      onRemoved: { addListener(fn) { tabEvents.removed.push(fn); } },
+    },
+    windows: {
+      create(opts, cb) {
+        createdWindow = { id: 2, tabs: [{ id: 21, windowId: 2, index: 0, title: "", url: "", pendingUrl: opts.url }] };
+        cb(createdWindow);
+      },
+    },
+  };
+  const popupContext = {
+    document, chrome, URL, console,
+    setTimeout(fn) { timers.push(fn); return timers.length; },
+    clearTimeout() {},
+  };
+  popupContext.globalThis = popupContext;
+  vm.createContext(popupContext);
+  vm.runInContext(source, popupContext);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../chrome-extension/popup.js"), "utf8"), popupContext);
+  document.ready();
+
+  // Saved choices are shown: RIGHT was picked as ChatGPT before any pairing.
+  assert.equal(document.getElementById("siteRight").value, "chatgpt");
+  assert.equal(document.getElementById("stateBadge").innerText, "Not running");
+  assert.match(document.getElementById("ipcStatus").innerText, /^Not running/);
+  assert.match(document.getElementById("modeStatus").innerText, /^On — Sidera pastes/);
+
+  const labels = document.getElementById("tabLeft").children.map((o) => o.innerText);
+  assert.deepEqual(labels, ["Tab 1: ChatGPT", "Tab 2: ChatGPT"], "two same-window ChatGPT tabs read differently");
+  assert.notEqual(document.getElementById("tabLeft").value, document.getElementById("tabRight").value, "the two pickers start on different tabs");
+
+  // Picking an AI is saved at once, before Pair.
+  document.getElementById("siteLeft").value = "gemini";
+  document.getElementById("siteLeft").fire("change");
+  const choice = sentToBackground.find((m) => m.type === "SET_ADAPTER_CHOICE");
+  assert.deepEqual(JSON.parse(JSON.stringify(choice)), { type: "SET_ADAPTER_CHOICE", side: "LEFT", adapterType: "gemini" });
+
+  // "Open in a new window": the new tab is preselected once it is listed,
+  // driven by the tab events.
+  document.getElementById("btnOpenRight").fire("click");
+  assert.equal(createdWindow.tabs[0].pendingUrl, "https://chatgpt.com/");
+  tabs.push(createdWindow.tabs[0]);
+  tabEvents.created.forEach((fn) => fn(createdWindow.tabs[0]));
+  while (timers.length) timers.shift()();
+  assert.equal(document.getElementById("tabRight").value, "21", "the new window's tab is preselected");
+  assert.match(document.getElementById("statusMessage").innerText, /new window/);
+}
 
 console.log("sites checks passed");
